@@ -161,7 +161,17 @@ def scrape_category(base_url: str, output_prefix: str, config: CrawlerConfig) ->
                     break
                 
                 # Add current URLs to the collection
+                previous_count = len(all_urls)
                 all_urls.update(current_urls)
+                new_count = len(all_urls)
+                
+                # If we found new URLs, signal to save them
+                if new_count > previous_count:
+                    logger.info(f"Found {new_count - previous_count} new URLs on page {page_number}")
+                    # The category can be extracted from the output_prefix
+                    category = os.path.basename(output_prefix)
+                    # Signal the master controller to save these URLs
+                    # Master controller will handle saving
                 
                 logger.info(f"Scraped page {page_number} with {len(current_urls)} URLs.")
                 page_number += 1
@@ -170,34 +180,15 @@ def scrape_category(base_url: str, output_prefix: str, config: CrawlerConfig) ->
                 logger.error(f"Error scraping {current_url}: {str(e)}")
                 break
                 
-        # Save all collected URLs
-        if all_urls:
-            save_urls(txt_file, json_file, all_urls)
-            
     finally:
         driver.quit()
         
     return {
         "txt_file": txt_file,
         "json_file": json_file,
-        "url_count": len(all_urls)
+        "url_count": len(all_urls),
+        "urls": list(all_urls)  # Add the actual URLs to the result
     }
-
-# ==== FILE HANDLING FUNCTIONS ====
-def save_urls(txt_file: str, json_file: str, urls: Set[str]) -> None:
-    """
-    Save scraped URLs to both TXT and JSON files.
-    
-    Args:
-        txt_file: Path to the output text file.
-        json_file: Path to the output JSON file.
-        urls: Set of URLs to save.
-    """
-    # Use the common save_urls_to_file function
-    save_urls_to_file(urls, txt_file, format_type="txt")
-    save_urls_to_file(urls, json_file, format_type="json")
-    
-    logger.info(f"Saved {len(urls)} URLs to {txt_file} and {json_file}")
 
 # ==== MAIN FUNCTIONS ====
 def scrape_all_categories(config: CrawlerConfig) -> None:

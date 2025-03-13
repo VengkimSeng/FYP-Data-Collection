@@ -80,59 +80,10 @@ def parse_links(soup, base_url):
     
     return links
 
-def save_to_file(category, links):
-    """Save the scraped links to category-specific files."""
-    global saved_links
-    # Use output directory from environment variable or default
-    output_dir = os.environ.get("CRAWLER_OUTPUT_DIR", "output/urls")
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Map category keywords to output categories
-    category_mappings = {
-        "economic": "economic",
-        "sport": "sport",
-        "politic": "politic",
-        "technology": "technology",
-        "health": "health"
-    }
-    
-    # Sort URLs by category
-    categorized_links = {cat: set() for cat in category_mappings.keys()}
-    other_links = set()
-    
-    for link in links - saved_links:
-        categorized = False
-        for cat_keyword in category_mappings:
-            # Check if the category keyword appears in the URL
-            if f"/{cat_keyword}/" in link:
-                categorized_links[cat_keyword].add(link)
-                categorized = True
-                break
-        
-        # If URL doesn't match any category, put it in "other"
-        if not categorized:
-            other_links.add(link)
-    
-    # Save each category to its respective file
-    for cat, cat_links in categorized_links.items():
-        if cat_links:  # Only write if there are links
-            file_path = os.path.join(output_dir, f"{category_mappings[cat]}.json")
-            
-            # Use the url_saver module if available
-            try:
-                from src.utils.url_saver import save_urls_to_file
-                save_urls_to_file(cat_links, file_path)
-            except ImportError:
-                # Fallback to direct JSON saving
-                with open(file_path, "w", encoding="utf-8") as f:
-                    json.dump(list(cat_links), f, ensure_ascii=False, indent=4)
-            
-            logging.info(f"Saved {len(cat_links)} {cat} links to {file_path}")
-            saved_links.update(cat_links)
-
 def crawl_pagination(base_url, start_url, category):
     """Crawl through paginated URLs and return all discovered links."""
     driver = setup_selenium()
+    links = set()  # Add this to collect links
     try:
         current_page = start_url
         while current_page:
@@ -140,9 +91,17 @@ def crawl_pagination(base_url, start_url, category):
             html = fetch_page_with_scroll(driver, current_page)
             soup = BeautifulSoup(html, "html.parser")
 
-            # Parse and save links from the current page
-            links = parse_links(soup, base_url)
-            save_to_file(category, links)
+            # Parse links from the current page and collect them
+            previous_count = len(links)
+            page_links = parse_links(soup, base_url)
+            links.update(page_links)
+            new_count = len(links)
+            
+            # If we found new links, signal to save them
+            if new_count > previous_count:
+                logging.info(f"Found {new_count - previous_count} new links on page {current_page}")
+                # The master controller will handle saving
+                # We'll add this URL to the visited_links set to avoid re-processing
 
             # Look for the next page in pagination
             next_page = None
@@ -161,6 +120,9 @@ def crawl_pagination(base_url, start_url, category):
         logging.error(f"Error crawling pagination: {e}")
     finally:
         driver.quit()
+    
+    # Return the collected links
+    return links
 
 def crawl_page(base_url, start_url, category):
     """Crawl the start URL and handle pagination."""

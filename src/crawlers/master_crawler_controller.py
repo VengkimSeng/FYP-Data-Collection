@@ -260,7 +260,8 @@ def crawl_url(url: str, category: str, output_dir: str, min_urls_per_source: int
                     time.sleep(5)
                     output_file = os.path.join(temp_dir, f"{category}_urls.txt")
                     logger.info(f"Executing scrape_page_content for {url}")
-                    crawler_module.scrape_page_content(driver, url, output_file)
+                    # Directly collect returned URLs
+                    collected_urls = crawler_module.scrape_page_content(driver, url, output_file)
                     logger.info(f"Completed scraping content from {url}")
                 finally:
                     driver.quit()
@@ -417,6 +418,20 @@ def crawl_url(url: str, category: str, output_dir: str, min_urls_per_source: int
                 collected_urls = collect_urls_from_dir(temp_dir, category)
                 
             logger.info(f"Collected {len(collected_urls)} URLs from {url}")
+            
+            # After collecting the URLs, merge them into a single category file:
+            if collected_urls:
+                category_file = os.path.join(output_dir, f"{category}.json")
+                # Load existing URLs (if any)
+                existing_urls = set()
+                if os.path.exists(category_file):
+                    existing_urls = set(load_urls_from_file(category_file))
+                
+                # Merge and save
+                final_urls = existing_urls.union(collected_urls)
+                save_urls_to_file(final_urls, category_file)
+                logger.info(f"Appended {len(collected_urls)} new URLs to {category_file}")
+            
             return collected_urls
             
         else:
@@ -659,6 +674,47 @@ def process_categories(categories: Dict[str, List[str]], args):
             logger.info(f"Cleaned up temporary directory: {temp_dir}")
     except Exception as e:
         logger.warning(f"Error cleaning up temporary directory: {e}")
+
+def save_category_urls(category: str, new_urls: Set[str], output_dir: str) -> None:
+    """
+    Immediately save new URLs to the category file.
+    
+    Args:
+        category: Category name
+        new_urls: Set of new URLs to save
+        output_dir: Output directory
+    """
+    if not new_urls:
+        return
+        
+    category_file = os.path.join(output_dir, f"{category}.json")
+    
+    # Load existing URLs (if any)
+    existing_urls = set()
+    if os.path.exists(category_file):
+        existing_urls = set(load_urls_from_file(category_file))
+    
+    # Merge and save
+    final_urls = existing_urls.union(new_urls)
+    save_urls_to_file(final_urls, category_file)
+    logger.info(f"Saved {len(new_urls)} new URLs to {category_file}, total: {len(final_urls)}")
+
+# Define a helper function to load URLs from a file
+def load_urls_from_file(file_path: str) -> List[str]:
+    """Load URLs from a file (either JSON or TXT)."""
+    try:
+        if file_path.lower().endswith('.json'):
+            with open(file_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        elif file_path.lower().endswith('.txt'):
+            with open(file_path, "r", encoding="utf-8") as f:
+                return [line.strip() for line in f if line.strip()]
+        else:
+            logger.error(f"Unsupported file format for {file_path}")
+            return []
+    except Exception as e:
+        logger.error(f"Error loading URLs from {file_path}: {e}")
+        return []
 
 def main():
     """Main entry point for the crawler controller."""

@@ -152,18 +152,23 @@ def scrape_urls(base_url, max_urls=6000, retry_count=3):
                 filtered_urls = filter_article_urls(page_urls, base_domain, category)
                 
                 # Add new URLs to our collection
-                new_urls = 0
+                previous_count = len(unique_urls)
                 for url in filtered_urls:
                     if url and url not in unique_urls:
                         unique_urls.add(url)
-                        new_urls += 1
+                new_count = len(unique_urls)
+                new_urls = new_count - previous_count
                 
                 logger.info(f"Found {new_urls} new article URLs (Total: {len(unique_urls)})")
                 
-                # Save progress periodically
-                if pages_scraped % 5 == 0 or new_urls > 0:
+                # Save progress immediately whenever we find new URLs
+                if new_urls > 0:
+                    logger.info(f"Saving {new_urls} new URLs")
                     filename = f"{category}_urls.json"
-                    save_to_json(list(unique_urls), filename)
+                    save_progress(base_url, current_url, list(unique_urls), pages_scraped)
+                # Also save periodically even if no new URLs
+                elif pages_scraped % 5 == 0:
+                    filename = f"{category}_urls.json"
                     save_progress(base_url, current_url, list(unique_urls), pages_scraped)
                 
                 # Check if we've reached the end (no new URLs found)
@@ -200,21 +205,9 @@ def scrape_urls(base_url, max_urls=6000, retry_count=3):
     
     # Final save of progress
     filename = f"{category}_urls.json"
-    save_to_json(list(unique_urls), filename)
     save_progress(base_url, current_url, list(unique_urls), pages_scraped)
     
     return list(unique_urls)[:max_urls]
-
-def save_to_json(data, filename):
-    """Save data to a JSON file."""
-    os.makedirs("Rfanews", exist_ok=True)
-    os.makedirs("Rfanews/filtered", exist_ok=True)
-    filepath = os.path.join("Rfanews", filename)
-    filtered_filepath = os.path.join("Rfanews/filtered", filename)
-    
-    # Use the common save_urls_to_file function
-    save_urls_to_file(data, filepath)
-    save_urls_to_file(data, filtered_filepath)
 
 def main():
     logger.info(f"Starting RFA News Web Crawler on {platform.system()} {platform.release()}")

@@ -42,7 +42,7 @@ def setup_selenium():
         raise
 
 def fetch_and_save_links(driver, url, category, max_scrolls=2000, scroll_pause_time=4):
-    """Fetch links iteratively and save unique links."""
+    """Fetch links iteratively and collect unique links."""  # Renamed from "save" to "collect"
     links = set()
     logging.info(f"Opening URL: {url}")
     
@@ -101,8 +101,7 @@ def fetch_and_save_links(driver, url, category, max_scrolls=2000, scroll_pause_t
                         # Extract links from the page
                         extract_links_from_page(soup, url, links)
                         
-                        # Save progress
-                        save_to_file(category, links)
+                        # Remove save progress call - let master controller handle it
                         
                         if articles_count < page * 10:  # Assuming each page should have at least 10 articles
                             logging.info(f"No more pages to load after page {page}")
@@ -156,10 +155,8 @@ def fetch_and_save_links(driver, url, category, max_scrolls=2000, scroll_pause_t
                 new_links_found = len(links) - new_links_found
                 logging.info(f"Found {new_links_found} new links on scroll {scroll_count + 1}. Total: {len(links)}")
 
-                # Save intermediate results 
-                if scroll_count % 3 == 0 or new_links_found > 0:
-                    save_to_file(category, links)
-
+                # Remove intermediate saving - master controller will handle it
+                
                 # Check if no more content is being loaded or no new links found
                 new_height = driver.execute_script("return document.body.scrollHeight")
                 
@@ -242,17 +239,6 @@ def extract_links_from_page(soup, base_url, links_set):
                 if '/article/' in full_url or full_url.endswith('.html'):
                     links_set.add(full_url)
 
-def save_to_file(category, links):
-    """Save the scraped links to a category-specific file."""
-    # This function will be overridden by master_crawler_controller.py
-    # but we'll make it more centralized for when run standalone
-    output_dir = os.environ.get("CRAWLER_OUTPUT_DIR", "output/urls")
-    os.makedirs(output_dir, exist_ok=True)
-    file_path = os.path.join(output_dir, f"{category}.json")
-    
-    # Use the common save_urls_to_file function
-    save_urls_to_file(links, file_path)
-
 def crawl_url(base_url, shared_links, lock, category):
     """Crawl a single URL and save intermediate results."""
     driver = setup_selenium()
@@ -300,9 +286,8 @@ def main():
             except Exception as e:
                 logging.error(f"Error in thread execution: {e}")
 
-    output_file = os.path.join(output_dir, "all_links.json")
-    save_to_file("all_links", shared_links)
-    logging.info(f"Finished crawling all URLs. Total links saved to {output_file}.")
+    # Remove the final save - master controller will handle it
+    logging.info(f"Finished crawling all URLs. Total links found: {len(shared_links)}.")
 
 if __name__ == "__main__":
     try:

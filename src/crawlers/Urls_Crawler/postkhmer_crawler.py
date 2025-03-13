@@ -182,11 +182,14 @@ def scrape_page_content(driver, base_url, output_file):
     logger.info("Extracting initial URLs")
     soup = BeautifulSoup(driver.page_source, "html.parser")
     initial_urls = extract_article_urls(soup, base_url)
+    previous_count = len(visited_urls)
     visited_urls.update(initial_urls)
-    logger.info(f"Initial load: Found {len(initial_urls)} article URLs")
+    new_count = len(visited_urls)
     
-    # Save URLs from initial load
-    save_urls_to_file(output_file, visited_urls)
+    # Signal that we have new URLs to save
+    if new_count > previous_count:
+        logger.info(f"Initial load: Found {new_count - previous_count} new article URLs")
+        # Master controller will handle saving
     
     # Continue clicking load more until conditions are met
     while click_attempts < max_attempts and consecutive_failures < max_consecutive_failures:
@@ -214,8 +217,11 @@ def scrape_page_content(driver, base_url, output_file):
         visited_urls.update(new_urls)
         current_count = len(visited_urls)
         
-        # Log progress
+        # Log progress and signal to save if we found new URLs
         logger.info(f"Click #{click_attempts}: Found {current_count} total URLs (+{current_count - previous_count} new)")
+        if current_count > previous_count:
+            logger.info(f"Saving {current_count - previous_count} new URLs")
+            # Master controller will handle saving
         
         # If no new URLs were found, we might have reached the end
         if current_count == previous_count:
@@ -225,20 +231,18 @@ def scrape_page_content(driver, base_url, output_file):
                 logger.info("Maximum consecutive failures with no new content reached, stopping")
                 break
         
-        # Save URLs incrementally
-        save_urls_to_file(output_file, visited_urls)
+        # Remove saving - master controller will handle it
+        # save_urls_to_file(output_file, visited_urls)
         
         # Pause between clicks
         time.sleep(3)
 
     logger.info(f"Scraping completed for {base_url}. Total URLs: {len(visited_urls)}")
-    # Final save
-    save_urls_to_file(output_file, visited_urls)
-
-def save_urls_to_file(file_path, urls):
-    """Save URLs to the output file."""
-    # Use the common save_urls_to_file function
-    save_urls_to_file(urls, file_path, format_type="txt")
+    # Remove final save - master controller will handle it
+    # save_urls_to_file(output_file, visited_urls)
+    
+    # Return the collected URLs
+    return visited_urls
 
 def filter_postkhmer_urls(urls):
     """Filter PostKhmer URLs based on specific criteria."""
@@ -319,19 +323,16 @@ def main():
             time.sleep(5)  # Wait for the page to load completely
             
             # Scrape content for the current URL
-            scrape_page_content(driver, url, raw_output_file)
+            urls = scrape_page_content(driver, url, raw_output_file)
             
-            # Read the raw URLs and filter them
-            with open(raw_output_file, "r", encoding="utf-8") as file:
-                raw_urls = [line.strip() for line in file if line.strip()]
+            # Filter the URLs
+            filtered_urls = filter_postkhmer_urls(list(urls))
             
-            filtered_urls = filter_postkhmer_urls(raw_urls)
+            # Remove saving - master controller will handle it
+            # with open(filtered_output_file, "w", encoding="utf-8") as file:
+            #     json.dump(filtered_urls, file, indent=4, ensure_ascii=False)
             
-            # Save filtered URLs to JSON
-            with open(filtered_output_file, "w", encoding="utf-8") as file:
-                json.dump(filtered_urls, file, indent=4, ensure_ascii=False)
-            
-            logger.info(f"Filtered URLs saved to {filtered_output_file}")
+            logger.info(f"Filtered {len(filtered_urls)} URLs from {url}")
     except Exception as e:
         logger.error(f"An error occurred: {e}", exc_info=True)
     finally:

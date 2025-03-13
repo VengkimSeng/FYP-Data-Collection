@@ -92,33 +92,19 @@ def crawl_page(base_url, page_index, shared_links, lock, category):
         links = parse_links(soup, base_url)
 
         with lock:  # Ensure thread-safe access to shared_links
+            previous_count = len(shared_links)
             shared_links.update(links)
-            # Save to file after updating shared_links
-            save_to_file(category, shared_links)
+            new_count = len(shared_links)
+            if new_count > previous_count:
+                # Signal to master controller that we have new URLs to save
+                # This will be handled by the master controller's override
+                logging.info(f"Found {new_count - previous_count} new links on page {page_index}")
 
         logging.info(f"Found {len(links)} links on page {page_index}.")
     except Exception as e:
         logging.error(f"Error crawling page {page_index}: {e}")
     finally:
         driver.quit()
-
-def save_to_file(category, article_links):
-    """Save article links to a category-specific file."""
-    # Use output directory from environment variable or default
-    output_dir = os.environ.get("CRAWLER_OUTPUT_DIR", "output/urls")
-    os.makedirs(output_dir, exist_ok=True)
-    file_path = os.path.join(output_dir, f"{category}.json")
-    
-    try:
-        # Try to use the url_saver module
-        from src.utils.url_saver import save_urls_to_file
-        save_urls_to_file(article_links, file_path)
-    except ImportError:
-        # Fallback to direct JSON saving
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(list(article_links), f, ensure_ascii=False, indent=4)
-    
-    logging.info(f"Saved {len(article_links)} URLs to {file_path}")
 
 def main():
     # Hardcoded URLs instead of reading from a file
