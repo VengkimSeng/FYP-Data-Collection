@@ -202,7 +202,12 @@ def scrape_urls(base_url, max_urls=6000, retry_count=3, url_manager=None):
         filename = f"{category}_urls.json"
         save_progress(base_url, current_url, list(unique_urls), pages_scraped)
     
-    return list(unique_urls)[:max_urls]
+    # Add URLs directly using URL manager
+    if url_manager and filtered_urls:
+        added = url_manager.add_urls(category, filtered_urls)
+        logger.info(f"Added {added} URLs to URL manager for category '{category}'")
+    
+    return filtered_urls
 
 def main():
     logger.info(f"Starting RFA News Web Crawler on {platform.system()} {platform.release()}")
@@ -233,7 +238,7 @@ def main():
             category = urlparse(base_url).path.split('/')[-2]
             try:
                 scraped_urls = future.result()
-                logger.info(f"Completed scraping for {category}: {len(scraped_urls)} URLs collected")
+                logger.info(f"Completed scraping for {category}")
             except Exception as e:
                 logger.error(f"Error scraping {base_url}: {e}")
     

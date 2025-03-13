@@ -280,24 +280,31 @@ def crawl_kohsantepheap(output_dir="output/urls", urls_per_category=500):
     return results
 
 def main():
-    """Main function to crawl the specified URLs."""
+    """Main function to crawl URLs."""
     # Use standard output directory
     output_dir = "output/urls"
     os.makedirs(output_dir, exist_ok=True)
     
-    # Use URLManager for centralized URL management with standard output directory
+    # Initialize URL manager with standard output directory
     url_manager = URLManager(output_dir, "kohsantepheapdaily")
     
     # Process each category
-    for category, base_url in CATEGORIES.items():
+    for category, url in CATEGORIES.items():
         try:
-            crawl_url(base_url, url_manager, category)
+            driver = setup_selenium()
+            links = fetch_links(driver, url, category)
+            driver.quit()
+            
+            # Add URLs to URL manager
+            if links:
+                added = url_manager.add_urls(category, links)
+                logger.info(f"Added {added} new links for category {category}")
         except Exception as e:
-            logging.error(f"Error processing category {category}: {e}")
+            logger.error(f"Error processing category {category}: {e}")
     
     # Save final results
     results = url_manager.save_final_results()
-    logging.info(f"Finished crawling all URLs. Total links saved: {sum(results.values())}.")
+    logger.info(f"Finished crawling. Total links saved: {sum(results.values())}.")
 
 if __name__ == "__main__":
     try:

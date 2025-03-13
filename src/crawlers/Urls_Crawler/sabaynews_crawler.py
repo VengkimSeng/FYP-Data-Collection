@@ -184,13 +184,8 @@ def scrape_category(base_url: str, output_prefix: str, config: CrawlerConfig) ->
 
 # ==== MAIN FUNCTIONS ====
 def scrape_all_categories(config: CrawlerConfig, url_manager: URLManager = None) -> None:
-    """
-    Scrape all configured categories concurrently.
-    """
-    # Create URL manager if not provided
     if url_manager is None:
-        output_dir = "output/urls"  # Use main output directory directly
-        url_manager = URLManager(output_dir, "sabaynews", auto_save=False)  # Disable auto-save to temp
+        url_manager = URLManager("output/urls", "sabaynews")
     
     # Prepare tasks for concurrent execution
     tasks = []
@@ -211,14 +206,9 @@ def scrape_all_categories(config: CrawlerConfig, url_manager: URLManager = None)
             category = futures[future]
             try:
                 result = future.result()
-                
-                # Add URLs to URL manager and save immediately
                 if url_manager and result:
                     added = url_manager.add_urls(category, result)
-                    # Save directly to output file after adding URLs
-                    output_file = os.path.join(url_manager.output_dir, f"{category}.json")
-                    save_urls_to_file(list(result), output_file)
-                    logger.info(f"Added and saved {added} URLs for category '{category}' to {output_file}")
+                    logger.info(f"Added and saved {added} URLs for category '{category}'")
             except Exception as e:
                 logger.error(f"Error scraping category '{category}': {str(e)}")
     

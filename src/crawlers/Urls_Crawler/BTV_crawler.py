@@ -150,7 +150,7 @@ def crawl_category(base_url: str, category: str, max_pages: int = 100) -> Set[st
     
     return shared_links
 
-def main() -> None:
+def main():
     """Main entry point for the BTV crawler."""
     categories = {
         "sport": "https://btv.com.kh/category/sport",

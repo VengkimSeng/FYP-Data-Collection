@@ -226,7 +226,7 @@ def scrape_page_content(driver, base_url, category, url_manager):
             
             if new_urls_to_add:
                 added = url_manager.add_urls(category, new_urls_to_add)
-                logger.info(f"Click #{click_attempts}: Added {added} new URLs to URL manager")
+                logger.info(f"Click #{click_attempts}: Added {added} new URLs")
         
         logger.info(f"Click #{click_attempts}: Found {current_count} total URLs (+{current_count - previous_count} new)")
         
