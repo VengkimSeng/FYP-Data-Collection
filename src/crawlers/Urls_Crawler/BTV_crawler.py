@@ -13,6 +13,7 @@ import sys
 # Add parent directory to path to import chrome_setup
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.utils.chrome_setup import setup_chrome_driver
+from src.crawlers.url_manager import URLManager
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -81,8 +82,8 @@ def parse_links(soup, base_url):
     
     return links
 
-def crawl_page(base_url, page_index, shared_links, lock, category):
-    """Crawl a single page and save intermediate results."""
+def crawl_page(base_url, page_index, url_manager, category):
+    """Crawl a single page and add links to URL manager."""
     driver = setup_selenium()
     try:
         page_url = f"{base_url}?page={page_index}"
@@ -91,14 +92,12 @@ def crawl_page(base_url, page_index, shared_links, lock, category):
         soup = BeautifulSoup(html, "html.parser")
         links = parse_links(soup, base_url)
 
-        with lock:  # Ensure thread-safe access to shared_links
-            previous_count = len(shared_links)
-            shared_links.update(links)
-            new_count = len(shared_links)
-            if new_count > previous_count:
-                # Signal to master controller that we have new URLs to save
-                # This will be handled by the master controller's override
-                logging.info(f"Found {new_count - previous_count} new links on page {page_index}")
+        # Add links to URL manager
+        if links:
+            added = url_manager.add_urls(category, links)
+            logging.info(f"Added {added} new links from page {page_index} to category {category}")
+        else:
+            logging.info(f"No links found on page {page_index}")
 
         logging.info(f"Found {len(links)} links on page {page_index}.")
     except Exception as e:
@@ -106,22 +105,60 @@ def crawl_page(base_url, page_index, shared_links, lock, category):
     finally:
         driver.quit()
 
+def crawl_btv(output_dir="output/urls", urls_per_category=500):
+    """Main function to crawl BTV categories using URLManager."""
+    urls = [
+        "https://btv.com.kh/category/sport",
+        "https://btv.com.kh/category/economic"
+    ]
+    
+    # Use standard output directory and URL manager
+    url_manager = URLManager(output_dir, "btv", urls_per_category)
+    
+    for base_url in urls:
+        category = base_url.split("/")[-1]
+        max_pages = 500  # Limit to 20 pages initially
+        
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [
+                executor.submit(crawl_page, base_url, page, url_manager, category)
+                for page in range(1, max_pages + 1)
+            ]
+
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    logging.error(f"Error in thread execution: {e}")
+    
+    # Save final results
+    results = url_manager.save_final_results()
+    logging.info(f"Total URLs saved: {sum(results.values())}")
+    return results
+
 def main():
-    # Hardcoded URLs instead of reading from a file
+    # Hardcoded URLs to scrape
     urls = [
         "https://btv.com.kh/category/sport",
         "https://btv.com.kh/category/economic"
     ]
 
+    logging.info(f"Starting crawl of {len(urls)} categories")
+    
+    # Create standard output directory
+    output_dir = "output/urls"
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Use URL manager with standard output directory
+    url_manager = URLManager(output_dir, "btv")
+
     for base_url in urls:
         category = base_url.split("/")[-1]
-        shared_links = set()
-        lock = threading.Lock()
-        max_pages = 500
+        max_pages = 500  # Adjust based on site content
 
         with ThreadPoolExecutor(max_workers=5) as executor:
             futures = [
-                executor.submit(crawl_page, base_url, page, shared_links, lock, category)
+                executor.submit(crawl_page, base_url, page, url_manager, category)
                 for page in range(1, max_pages + 1)
             ]
 
@@ -131,19 +168,11 @@ def main():
                 except Exception as e:
                     logging.error(f"Error in thread execution: {e}")
 
-        logging.info(f"Finished crawling category '{category}'. Results saved.")
+        logging.info(f"Finished crawling category '{category}'.")
 
-        # Ask user whether to continue to the next URL
-        while True:
-            user_input = input(f"Finished crawling '{category}'. Continue to the next URL? (y/n): ").strip().lower()
-            if user_input == "y":
-                break  # Move to the next URL
-            elif user_input == "n":
-                logging.info("Exiting script as requested by the user.")
-                return  # Exit the script
-            else:
-                logging.info("Invalid input. Please type 'y' to continue or 'n' to exit.")
-
+    # Save final results
+    results = url_manager.save_final_results()
+    logging.info(f"Finished crawling all URLs. Total links saved: {sum(results.values())}.")
 
 if __name__ == "__main__":
     try:

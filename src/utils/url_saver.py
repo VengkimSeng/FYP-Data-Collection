@@ -1,122 +1,76 @@
 import os
 import json
 import logging
-from typing import List, Dict, Optional
+import time
+import threading
+from typing import Set, Dict, List, Iterable, Union, Optional
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("url_saver")
-
-def save_urls_to_file(urls: List[str], output_path: str, format_type: str = "json", category: Optional[str] = None, **kwargs) -> bool:
-    """
-    Save URLs to a file in the specified format.
-    
-    Args:
-        urls: List of URLs to save
-        output_path: Path to the output file or directory
-        format_type: Format type ("json" or "txt")
-        category: Category name for organizing URLs (optional)
-        **kwargs: Additional arguments passed to the JSON dumper
-    
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        # If category is specified, save to the Scrape_urls directory
-        if category:
-            scrape_dir = "output/urls"
-            os.makedirs(scrape_dir, exist_ok=True)
-            output_path = os.path.join(scrape_dir, f"{category}.{format_type}")
-            
-            # If file exists, load existing URLs and merge
-            unique_urls = set(urls)
-            if os.path.exists(output_path):
-                if format_type.lower() == "json":
-                    with open(output_path, "r", encoding="utf-8") as f:
-                        try:
-                            existing_urls = json.load(f)
-                            unique_urls.update(existing_urls)
-                        except json.JSONDecodeError:
-                            logger.warning(f"Could not decode existing file {output_path}, overwriting")
-                elif format_type.lower() == "txt":
-                    with open(output_path, "r", encoding="utf-8") as f:
-                        existing_urls = [line.strip() for line in f if line.strip()]
-                        unique_urls.update(existing_urls)
-            
-            urls = list(unique_urls)
-        else:
-            # Ensure the directory exists
-            os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+class URLSaver:
+    def __init__(self, output_dir: str, crawler_name: str):
+        self.output_dir = output_dir
+        self.crawler_name = crawler_name
+        self.lock = threading.Lock()
+        self.logger = logging.getLogger(f"{crawler_name}_url_saver")
         
-        # Save the URLs
-        unique_urls = list(set(urls))
-        if format_type.lower() == "json":
-            with open(output_path, "w", encoding="utf-8") as f:
-                json.dump(unique_urls, f, ensure_ascii=False, indent=4, **kwargs)
-        elif format_type.lower() == "txt":
-            with open(output_path, "w", encoding="utf-8") as f:
-                for url in unique_urls:
-                    f.write(f"{url}\n")
-                    
-        logger.info(f"Saved {len(unique_urls)} URLs to {output_path}")
-        return True
+        self.temp_dir = os.path.join(output_dir, "temp", f"{int(time.time())}_{crawler_name}")
+        os.makedirs(self.temp_dir, exist_ok=True)
+        os.makedirs(output_dir, exist_ok=True)
         
-    except Exception as e:
-        logger.error(f"Error saving URLs to {output_path}: {e}")
-        return False
-
-def save_urls_by_category(url_dict: Dict[str, List[str]], base_dir: str = "output/urls", format_type: str = "json") -> bool:
-    """
-    Save URLs organized by category.
+        self.category_urls: Dict[str, Set[str]] = {}
     
-    Args:
-        url_dict: Dictionary of category -> URLs
-        base_dir: Base directory for output files (default: Scrape_urls)
-        format_type: Format type ("json" or "txt")
+    def add_urls(self, category: str, urls: Iterable[str]) -> None:
+        with self.lock:
+            if category not in self.category_urls:
+                self.category_urls[category] = set()
+            self.category_urls[category].update(urls)
+            self._save_temp_file(category, urls)
     
-    Returns:
-        True if all categories were saved successfully, False otherwise
-    """
-    os.makedirs(base_dir, exist_ok=True)
-    success = True
+    def _save_temp_file(self, category: str, urls: Iterable[str]) -> None:
+        temp_file = os.path.join(self.temp_dir, f"{category}_urls.json")
+        self._save_urls_to_file(urls, temp_file)
+        self.logger.info(f"Saved {len(urls)} URLs to temporary file for category '{category}'")
     
-    for category, urls in url_dict.items():
-        output_path = os.path.join(base_dir, f"{category}.{format_type}")
-        if not save_urls_to_file(urls, output_path, format_type):
-            success = False
-            
-    return success
-
-def save_urls_to_multiple_formats(urls, base_filename, formats=None):
-    """
-    Save URLs to multiple file formats.
+    def save_final_results(self) -> Dict[str, int]:
+        results = {}
+        for category, urls in self.category_urls.items():
+            output_file = os.path.join(self.output_dir, f"{category}.json")
+            existing_urls = set()
+            if os.path.exists(output_file):
+                existing_urls = set(self._load_urls_from_file(output_file))
+            final_urls = existing_urls.union(urls)
+            self._save_urls_to_file(final_urls, output_file)
+            results[category] = len(final_urls)
+            self.logger.info(f"Saved {len(final_urls)} URLs to final file for category '{category}'")
+        return results
     
-    Args:
-        urls: Collection of URLs to save
-        base_filename: Base filename without extension
-        formats: List of formats to save (default: ['json', 'txt'])
+    def _save_urls_to_file(self, urls: Iterable[str], file_path: str, 
+                          format_type: str = "json", ensure_ascii: bool = False, 
+                          indent: int = 4) -> bool:
+        try:
+            urls_list = sorted(list(set(urls)))
+            if format_type.lower() == "json":
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(urls_list, f, ensure_ascii=ensure_ascii, indent=indent)
+            else:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    for url in urls_list:
+                        f.write(f"{url}\n")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error saving URLs to file {file_path}: {str(e)}")
+            return False
     
-    Returns:
-        Dict of saved filenames by format
-    """
-    if formats is None:
-        formats = ['json', 'txt']
-    
-    result = {}
-    
-    for fmt in formats:
-        if fmt == 'json':
-            filename = f"{base_filename}.json"
-            save_urls_to_file(urls, filename)
-            result['json'] = filename
-        elif fmt == 'txt':
-            filename = f"{base_filename}.txt"
-            with open(filename, 'w', encoding='utf-8') as f:
-                for url in urls:
-                    f.write(f"{url}\n")
-            result['txt'] = filename
-    
-    return result
+    def _load_urls_from_file(self, file_path: str) -> List[str]:
+        try:
+            if file_path.endswith('.json'):
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            else:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    return [line.strip() for line in f if line.strip()]
+        except Exception as e:
+            self.logger.error(f"Error loading URLs from file {file_path}: {str(e)}")
+            return []
 
 # For testing the module directly
 if __name__ == "__main__":
@@ -125,5 +79,8 @@ if __name__ == "__main__":
         "sport": ["https://example.com/sports/1", "https://example.com/sports/2"],
         "economy": ["https://example.com/economy/1", "https://example.com/economy/2"]
     }
-    save_urls_by_category(test_urls)
-    logger.info("Test completed")
+    url_saver = URLSaver(output_dir="output/urls", crawler_name="test_crawler")
+    for category, urls in test_urls.items():
+        url_saver.add_urls(category, urls)
+    url_saver.save_final_results()
+    url_saver.logger.info("Test completed")

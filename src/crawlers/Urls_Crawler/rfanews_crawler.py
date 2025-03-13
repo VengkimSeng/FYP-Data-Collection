@@ -24,6 +24,9 @@ from src.utils.chrome_setup import setup_chrome_driver, setup_chrome_options
 # Import the url_saver module
 from src.utils.url_saver import save_urls_to_file, save_urls_with_progress, load_progress
 
+# Import the URLManager
+from src.crawlers.url_manager import URLManager
+
 # Suppress urllib3 warnings related to SSL
 warnings.filterwarnings('ignore', category=urllib3.exceptions.NotOpenSSLWarning)
 urllib3.disable_warnings(InsecureRequestWarning)
@@ -107,12 +110,12 @@ def filter_article_urls(urls, base_domain, category):
     logger.info(f"Filtered {len(filtered)} URLs out of {len(urls)} raw URLs for {category}")
     return filtered
 
-def scrape_urls(base_url, max_urls=6000, retry_count=3):
+def scrape_urls(base_url, max_urls=6000, retry_count=3, url_manager=None):
     """Scrape unique URLs from the given base URL."""
     progress = load_progress(base_url)
-    current_url = progress["current_url"]
-    unique_urls = set(progress["unique_urls"])
-    pages_scraped = progress["pages_scraped"]
+    current_url = progress.get("current_url", base_url)
+    unique_urls = set(progress.get("unique_urls", []))
+    pages_scraped = progress.get("pages_scraped", 0)
     base_domain = urlparse(base_url).netloc
     category = urlparse(base_url).path.split('/')[-2]  # Extract category
 
@@ -161,13 +164,21 @@ def scrape_urls(base_url, max_urls=6000, retry_count=3):
                 
                 logger.info(f"Found {new_urls} new article URLs (Total: {len(unique_urls)})")
                 
+                # Add to URL manager if provided
+                if url_manager and new_urls > 0:
+                    added = url_manager.add_urls(category, filtered_urls)
+                    logger.info(f"Added {added} URLs to URL manager for category '{category}'")
+                
                 # Save progress immediately whenever we find new URLs
                 if new_urls > 0:
                     logger.info(f"Saving {new_urls} new URLs")
-                    filename = f"{category}_urls.json"
-                    save_progress(base_url, current_url, list(unique_urls), pages_scraped)
+                    # If using URL manager, it will auto-save, otherwise save manually
+                    if not url_manager:
+                        filename = f"{category}_urls.json"
+                        save_progress(base_url, current_url, list(unique_urls), pages_scraped)
+                
                 # Also save periodically even if no new URLs
-                elif pages_scraped % 5 == 0:
+                elif pages_scraped % 5 == 0 and not url_manager:
                     filename = f"{category}_urls.json"
                     save_progress(base_url, current_url, list(unique_urls), pages_scraped)
                 
@@ -203,9 +214,10 @@ def scrape_urls(base_url, max_urls=6000, retry_count=3):
     logger.info(f"Total pages scraped: {pages_scraped}")
     logger.info(f"Total unique URLs collected: {len(unique_urls)}")
     
-    # Final save of progress
-    filename = f"{category}_urls.json"
-    save_progress(base_url, current_url, list(unique_urls), pages_scraped)
+    # Final save of progress if not using URL manager
+    if not url_manager:
+        filename = f"{category}_urls.json"
+        save_progress(base_url, current_url, list(unique_urls), pages_scraped)
     
     return list(unique_urls)[:max_urls]
 
@@ -220,22 +232,31 @@ def main():
         "https://www.rfa.org/khmer/news/politics/story_archive",
     ]
 
+    # Use standard output directory
+    output_dir = "output/urls" 
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Initialize URL manager with standard output dir
+    url_manager = URLManager(output_dir, "rfanews")
+
     # Optional: use fewer workers to reduce resource usage
     max_workers = min(len(urls_to_scrape), 2)  # Limit to 2 concurrent workers
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(scrape_urls, url, 6000): url for url in urls_to_scrape}
+        futures = {executor.submit(scrape_urls, url, 6000, 3, url_manager): url for url in urls_to_scrape}
 
         for future in futures:
             base_url = futures[future]
             category = urlparse(base_url).path.split('/')[-2]
             try:
                 scraped_urls = future.result()
-                filename = f"{category}_urls.json"
-                save_to_json(scraped_urls, filename)
                 logger.info(f"Completed scraping for {category}: {len(scraped_urls)} URLs collected")
             except Exception as e:
                 logger.error(f"Error scraping {base_url}: {e}")
+    
+    # Save final results
+    results = url_manager.save_final_results()
+    logger.info(f"Total URLs saved: {sum(results.values())}")
 
 if __name__ == "__main__":
     main()

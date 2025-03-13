@@ -716,6 +716,25 @@ def load_urls_from_file(file_path: str) -> List[str]:
         logger.error(f"Error loading URLs from {file_path}: {e}")
         return []
 
+from src.crawlers.url_manager import URLManager
+
+def run_master_crawler(output_dir, urls_per_category, max_workers=4):
+    url_manager = URLManager(output_dir, "master", urls_per_category)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = []
+        for crawler_name, crawler_func in CRAWLERS.items():
+            future = executor.submit(run_crawler, crawler_name, url_manager)
+            futures.append(future)
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                crawler_name, result = future.result()
+                logger.info(f"Crawler {crawler_name} completed: {result}")
+            except Exception as e:
+                logger.error(f"Crawler error: {e}")
+    results = url_manager.save_final_results()
+    logger.info(f"Master crawler completed. Saved {sum(results.values())} URLs across {len(results)} categories")
+    return results
+
 def main():
     """Main entry point for the crawler controller."""
     args = parse_arguments()

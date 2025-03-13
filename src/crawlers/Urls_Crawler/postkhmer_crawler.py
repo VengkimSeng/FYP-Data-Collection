@@ -34,6 +34,9 @@ from src.utils.chrome_setup import setup_chrome_driver
 # Import the url_saver module
 from src.utils.url_saver import save_urls_to_file
 
+# Import URLManager
+from src.crawlers.url_manager import URLManager
+
 def setup_selenium():
     """Setup Selenium WebDriver with headless mode."""
     try:
@@ -169,27 +172,24 @@ def extract_article_urls(soup, base_url):
     
     return urls
 
-def scrape_page_content(driver, base_url, output_file):
+def scrape_page_content(driver, base_url, category, url_manager):
     """Scrape URLs from the page, handling button clicks to load more content."""
     visited_urls = set()  # Store unique URLs
     click_attempts = 0
     max_attempts = 30  # Limit clicks to avoid infinite loops
     consecutive_failures = 0
     max_consecutive_failures = 3  # Stop after this many consecutive failures
-    category = base_url.split("/")[-1]  # Extract category name
     
     # Initial page load
     logger.info("Extracting initial URLs")
     soup = BeautifulSoup(driver.page_source, "html.parser")
     initial_urls = extract_article_urls(soup, base_url)
-    previous_count = len(visited_urls)
     visited_urls.update(initial_urls)
-    new_count = len(visited_urls)
     
-    # Signal that we have new URLs to save
-    if new_count > previous_count:
-        logger.info(f"Initial load: Found {new_count - previous_count} new article URLs")
-        # Master controller will handle saving
+    # Add initial URLs to URL manager
+    if initial_urls:
+        added = url_manager.add_urls(category, initial_urls)
+        logger.info(f"Initial load: Added {added} new article URLs")
     
     # Continue clicking load more until conditions are met
     while click_attempts < max_attempts and consecutive_failures < max_consecutive_failures:
@@ -217,11 +217,18 @@ def scrape_page_content(driver, base_url, output_file):
         visited_urls.update(new_urls)
         current_count = len(visited_urls)
         
-        # Log progress and signal to save if we found new URLs
-        logger.info(f"Click #{click_attempts}: Found {current_count} total URLs (+{current_count - previous_count} new)")
+        # Log progress and add to URL manager if we found new URLs
         if current_count > previous_count:
-            logger.info(f"Saving {current_count - previous_count} new URLs")
-            # Master controller will handle saving
+            new_urls_to_add = set()
+            for url in new_urls:
+                if url not in visited_urls:
+                    new_urls_to_add.add(url)
+            
+            if new_urls_to_add:
+                added = url_manager.add_urls(category, new_urls_to_add)
+                logger.info(f"Click #{click_attempts}: Added {added} new URLs to URL manager")
+        
+        logger.info(f"Click #{click_attempts}: Found {current_count} total URLs (+{current_count - previous_count} new)")
         
         # If no new URLs were found, we might have reached the end
         if current_count == previous_count:
@@ -231,15 +238,10 @@ def scrape_page_content(driver, base_url, output_file):
                 logger.info("Maximum consecutive failures with no new content reached, stopping")
                 break
         
-        # Remove saving - master controller will handle it
-        # save_urls_to_file(output_file, visited_urls)
-        
         # Pause between clicks
         time.sleep(3)
 
     logger.info(f"Scraping completed for {base_url}. Total URLs: {len(visited_urls)}")
-    # Remove final save - master controller will handle it
-    # save_urls_to_file(output_file, visited_urls)
     
     # Return the collected URLs
     return visited_urls
@@ -302,43 +304,45 @@ def main():
         "https://www.postkhmer.com/world"
     ]
 
-    output_dir = "scraped_urls"
-    filtered_dir = "filtered_urls"
-    os.makedirs(output_dir, exist_ok=True)  # Ensure output directory exists
-    os.makedirs(filtered_dir, exist_ok=True)  # Ensure filtered directory exists
+    # Use standard output directory
+    output_dir = "output/urls"
+    os.makedirs(output_dir, exist_ok=True)
     logger.info(f"Output directory: {output_dir}")
-    logger.info(f"Filtered directory: {filtered_dir}")
+
+    # Initialize URL manager with the standard output directory
+    url_manager = URLManager(output_dir, "postkhmer")
 
     try:
         driver = setup_selenium()
         for url in urls_to_scrape:
             logger.info(f"Scraping category: {url}")
-            # Create a separate output file for each category
+            # Extract category name from URL
             category = url.split("/")[-1]
-            raw_output_file = os.path.join(output_dir, f"{category}_urls.txt")
-            filtered_output_file = os.path.join(filtered_dir, f"{category}_filtered_urls.json")
             
             driver.get(url)  # Load the website
             logger.info(f"Loaded URL: {url}")
             time.sleep(5)  # Wait for the page to load completely
             
             # Scrape content for the current URL
-            urls = scrape_page_content(driver, url, raw_output_file)
+            urls = scrape_page_content(driver, url, category, url_manager)
             
             # Filter the URLs
             filtered_urls = filter_postkhmer_urls(list(urls))
             
-            # Remove saving - master controller will handle it
-            # with open(filtered_output_file, "w", encoding="utf-8") as file:
-            #     json.dump(filtered_urls, file, indent=4, ensure_ascii=False)
-            
-            logger.info(f"Filtered {len(filtered_urls)} URLs from {url}")
+            # Add filtered URLs to URL manager
+            added = url_manager.add_urls(category, filtered_urls)
+            logger.info(f"Added {added} filtered URLs from {url}")
     except Exception as e:
         logger.error(f"An error occurred: {e}", exc_info=True)
     finally:
         if 'driver' in locals():
             logger.info("Closing WebDriver")
             driver.quit()
+        
+        # Save final results
+        if 'url_manager' in locals():
+            results = url_manager.save_final_results()
+            logger.info(f"Total URLs saved: {sum(results.values())}")
 
 if __name__ == "__main__":
     main()

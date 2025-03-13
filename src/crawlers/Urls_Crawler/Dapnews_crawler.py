@@ -14,6 +14,7 @@ import json  # Import for JSON saving
 # Add parent directory to path to import chrome_setup
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.utils.chrome_setup import setup_chrome_driver, setup_chrome_options
+from src.crawlers.url_manager import URLManager
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -80,10 +81,10 @@ def parse_links(soup, base_url):
     
     return links
 
-def crawl_pagination(base_url, start_url, category):
-    """Crawl through paginated URLs and return all discovered links."""
+def crawl_pagination(base_url, start_url, category, url_manager):
+    """Crawl through paginated URLs and add to URLManager."""
     driver = setup_selenium()
-    links = set()  # Add this to collect links
+    links = set()
     try:
         current_page = start_url
         while current_page:
@@ -91,17 +92,18 @@ def crawl_pagination(base_url, start_url, category):
             html = fetch_page_with_scroll(driver, current_page)
             soup = BeautifulSoup(html, "html.parser")
 
-            # Parse links from the current page and collect them
-            previous_count = len(links)
+            # Parse links from the current page
             page_links = parse_links(soup, base_url)
+            
+            # Add new links to our collection
+            previous_count = len(links)
             links.update(page_links)
             new_count = len(links)
             
-            # If we found new links, signal to save them
+            # If we found new links, add them to URLManager
             if new_count > previous_count:
-                logging.info(f"Found {new_count - previous_count} new links on page {current_page}")
-                # The master controller will handle saving
-                # We'll add this URL to the visited_links set to avoid re-processing
+                added = url_manager.add_urls(category, page_links)
+                logging.info(f"Added {added} new links from {current_page}")
 
             # Look for the next page in pagination
             next_page = None
@@ -110,9 +112,8 @@ def crawl_pagination(base_url, start_url, category):
                     next_page = urljoin(base_url, a_tag["href"])
                     break
 
-            # Check if the next page has already been visited
-            if next_page and next_page not in visited_links:
-                visited_links.add(current_page)
+            # Move to next page if available
+            if next_page and next_page != current_page:
                 current_page = next_page
             else:
                 break  # No next page found
@@ -120,17 +121,37 @@ def crawl_pagination(base_url, start_url, category):
         logging.error(f"Error crawling pagination: {e}")
     finally:
         driver.quit()
-    
-    # Return the collected links
-    return links
 
-def crawl_page(base_url, start_url, category):
-    """Crawl the start URL and handle pagination."""
-    logging.info(f"Starting crawl for: {start_url}")
-    try:
-        crawl_pagination(base_url, start_url, category)
-    except Exception as e:
-        logging.error(f"Error crawling {start_url}: {e}")
+def crawl_dapnews(output_dir="output/urls", urls_per_category=500):
+    """Main function to crawl Dapnews using URLManager."""
+    base_url = "https://dap-news.com/"
+    urls_to_crawl = {
+        "economic": "https://dap-news.com/category/economic/",
+        "sport": "https://dap-news.com/category/sport/",
+        "politic": "https://dap-news.com/category/politic/",
+        "technology": "https://dap-news.com/category/technology/",
+        "health": "https://dap-news.com/category/health/"
+    }
+    
+    # Use standard output directory and URL manager
+    url_manager = URLManager(output_dir, "dapnews", urls_per_category)
+    max_workers = 3
+    
+    with ThreadPoolExecutor(max_workers) as executor:
+        futures = []
+        for category, url in urls_to_crawl.items():
+            futures.append(executor.submit(crawl_pagination, base_url, url, category, url_manager))
+
+        for future in futures:
+            try:
+                future.result()
+            except Exception as e:
+                logging.error(f"Error processing URL: {e}")
+    
+    # Save final results
+    results = url_manager.save_final_results()
+    logging.info(f"Total URLs saved: {sum(results.values())}")
+    return results
 
 def main():
     base_url = "https://dap-news.com/"
@@ -141,18 +162,39 @@ def main():
         "https://dap-news.com/category/technology/",
         "https://dap-news.com/category/health/"
     ]
-    max_threads = 5
-
-    with ThreadPoolExecutor(max_threads) as executor:
-        future_to_url = {executor.submit(crawl_page, base_url, url, url): url for url in urls_to_crawl}
-
-        for future in future_to_url:
+    
+    # Use standard output directory
+    output_dir = "output/urls"
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Initialize URL manager with standard output directory
+    url_manager = URLManager(output_dir, "dapnews")
+    
+    # Map URLs to categories
+    category_map = {
+        "https://dap-news.com/category/economic/": "economic",
+        "https://dap-news.com/category/sport/": "sport",
+        "https://dap-news.com/category/politic/": "politic",
+        "https://dap-news.com/category/technology/": "technology",
+        "https://dap-news.com/category/health/": "health"
+    }
+    
+    # Process each URL with threading for better performance
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = []
+        for url in urls_to_crawl:
+            category = category_map.get(url, "uncategorized")
+            futures.append(executor.submit(crawl_pagination, base_url, url, category, url_manager))
+        
+        for future in futures:
             try:
                 future.result()
             except Exception as e:
-                logging.error(f"Error processing URL: {future_to_url[future]} - {e}")
-
-    logging.info(f"Finished crawling. Results saved in the 'Dapnews' folder.")
+                logging.error(f"Error in thread execution: {e}")
+    
+    # Save final results
+    results = url_manager.save_final_results()
+    logging.info(f"Finished crawling all URLs. Total links saved: {sum(results.values())}.")
 
 if __name__ == "__main__":
     try:

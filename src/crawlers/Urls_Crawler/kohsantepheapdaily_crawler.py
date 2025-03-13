@@ -20,8 +20,8 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.utils.chrome_setup import setup_chrome_driver
 
-# Import the url_saver module
-from src.utils.url_saver import save_urls_to_file
+# Import URLManager
+from src.crawlers.url_manager import URLManager
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -41,8 +41,8 @@ def setup_selenium():
         logging.error(f"Error setting up WebDriver: {e}")
         raise
 
-def fetch_and_save_links(driver, url, category, max_scrolls=2000, scroll_pause_time=4):
-    """Fetch links iteratively and collect unique links."""  # Renamed from "save" to "collect"
+def fetch_links(driver, url, category, max_scrolls=2000, scroll_pause_time=4):
+    """Fetch links iteratively and collect unique links."""
     links = set()
     logging.info(f"Opening URL: {url}")
     
@@ -101,8 +101,6 @@ def fetch_and_save_links(driver, url, category, max_scrolls=2000, scroll_pause_t
                         # Extract links from the page
                         extract_links_from_page(soup, url, links)
                         
-                        # Remove save progress call - let master controller handle it
-                        
                         if articles_count < page * 10:  # Assuming each page should have at least 10 articles
                             logging.info(f"No more pages to load after page {page}")
                             break
@@ -155,8 +153,6 @@ def fetch_and_save_links(driver, url, category, max_scrolls=2000, scroll_pause_t
                 new_links_found = len(links) - new_links_found
                 logging.info(f"Found {new_links_found} new links on scroll {scroll_count + 1}. Total: {len(links)}")
 
-                # Remove intermediate saving - master controller will handle it
-                
                 # Check if no more content is being loaded or no new links found
                 new_height = driver.execute_script("return document.body.scrollHeight")
                 
@@ -202,6 +198,7 @@ def fetch_and_save_links(driver, url, category, max_scrolls=2000, scroll_pause_t
     logging.info(f"Completed crawling {url}. Found {len(links)} unique article links.")
     return links
 
+# Rest of the helper functions remain unchanged
 def extract_links_from_page(soup, base_url, links_set):
     """Extract article links from the page and add them to links_set."""
     # Method 1: Find links with article pattern in URL
@@ -239,55 +236,68 @@ def extract_links_from_page(soup, base_url, links_set):
                 if '/article/' in full_url or full_url.endswith('.html'):
                     links_set.add(full_url)
 
-def crawl_url(base_url, shared_links, lock, category):
-    """Crawl a single URL and save intermediate results."""
+def crawl_url(base_url, url_manager, category):
+    """Crawl a single URL and add links to URL manager."""
     driver = setup_selenium()
     try:
         logging.info(f"Crawling URL: {base_url}")
-        links = fetch_and_save_links(driver, base_url, category)
-
-        with lock:  # Ensure thread-safe access to shared_links
-            shared_links.update(links)
-
-        logging.info(f"Found {len(links)} links from URL: {base_url}.")
+        links = fetch_links(driver, base_url, category)
+        
+        # Add links to URL manager
+        added = url_manager.add_urls(category, links)
+        logging.info(f"Added {added} new links to {category} from URL: {base_url}")
     except Exception as e:
         logging.error(f"Error crawling URL {base_url}: {e}")
     finally:
         driver.quit()
 
+# Categories to crawl
+CATEGORIES = {
+    "sport": "https://kohsantepheapdaily.com.kh/category/sport",
+    "technology": "https://kohsantepheapdaily.com.kh/category/technology",
+    "politics": "https://kohsantepheapdaily.com.kh/category/politic"
+}
+
+def crawl_kohsantepheap(output_dir="output/urls", urls_per_category=500):
+    """Main function to crawl all categories using URLManager."""
+    # Use standard output directory and URL manager
+    url_manager = URLManager(output_dir, "kohsantepheapdaily", urls_per_category)
+    
+    for category, base_url in CATEGORIES.items():
+        try:
+            driver = setup_selenium()
+            links = fetch_links(driver, base_url, category)
+            driver.quit()
+            
+            added = url_manager.add_urls(category, links)
+            logging.info(f"Added {added} links for category {category}")
+        except Exception as e:
+            logging.error(f"Error crawling category {category}: {e}")
+    
+    # Save final results at the end
+    results = url_manager.save_final_results()
+    logging.info(f"Total URLs saved: {sum(results.values())}")
+    return results
+
 def main():
     """Main function to crawl the specified URLs."""
-    # Hardcoded URLs to scrape
-    urls = [
-        "https://kohsantepheapdaily.com.kh/category/sport",
-        "https://kohsantepheapdaily.com.kh/category/technology",
-        "https://kohsantepheapdaily.com.kh/category/politic",
-    ]
-
-    logging.info(f"Starting crawl of {len(urls)} categories")
-    
-    # Create output directory
-    output_dir = "kohsantepheapdaily"
+    # Use standard output directory
+    output_dir = "output/urls"
     os.makedirs(output_dir, exist_ok=True)
     
-    shared_links = set()
-    lock = threading.Lock()
-
-    # Reduce to 1 worker to allow more resources for deeper crawling
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        futures = [
-            executor.submit(crawl_url, url, shared_links, lock, url.strip("/").split("/")[-1])
-            for url in urls
-        ]
-
-        for future in as_completed(futures):
-            try:
-                future.result()
-            except Exception as e:
-                logging.error(f"Error in thread execution: {e}")
-
-    # Remove the final save - master controller will handle it
-    logging.info(f"Finished crawling all URLs. Total links found: {len(shared_links)}.")
+    # Use URLManager for centralized URL management with standard output directory
+    url_manager = URLManager(output_dir, "kohsantepheapdaily")
+    
+    # Process each category
+    for category, base_url in CATEGORIES.items():
+        try:
+            crawl_url(base_url, url_manager, category)
+        except Exception as e:
+            logging.error(f"Error processing category {category}: {e}")
+    
+    # Save final results
+    results = url_manager.save_final_results()
+    logging.info(f"Finished crawling all URLs. Total links saved: {sum(results.values())}.")
 
 if __name__ == "__main__":
     try:
