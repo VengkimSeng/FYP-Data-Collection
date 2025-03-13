@@ -12,8 +12,8 @@ from functools import wraps
 from colorama import Fore, Style
 from urllib.parse import urlparse
 
-from config import CHECKPOINT_FILE, MAX_RETRIES, RETRY_DELAY
-from logger import log_scrape_status, log_debug
+from src.extractors.config import CHECKPOINT_FILE, MAX_RETRIES, RETRY_DELAY
+from src.extractors.logger import log_scrape_status, log_debug
 
 # Thread-safe lock for checkpoint operations
 checkpoint_lock = threading.Lock()

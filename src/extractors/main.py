@@ -22,10 +22,10 @@ from datetime import datetime
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import modules from the article_crawler package
-from config import CHECKPOINT_FILE, MAX_WAIT_TIME, MAX_RETRIES
-from logger import log_scrape_status, log_debug, ensure_log_directories
-from utils import load_checkpoint
-from file_processor import process_file
+from src.extractors.config import CHECKPOINT_FILE, MAX_WAIT_TIME, MAX_RETRIES
+from src.extractors.logger import log_scrape_status, log_debug, ensure_log_directories
+from src.extractors.utils import load_checkpoint
+from src.extractors.file_processor import process_file
 
 # Import psutil for memory tracking
 try:
@@ -51,9 +51,9 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Extract article content from URLs.")
     parser.add_argument("--reset-checkpoint", action="store_true",
                         help="Reset the checkpoint file")
-    parser.add_argument("--input-dir", type=str, default="Scrape_urls",
+    parser.add_argument("--input-dir", type=str, default="output/urls",
                         help="Directory containing URL JSON files (default: Scrape_urls)")
-    parser.add_argument("--output-dir", type=str, default="Article",
+    parser.add_argument("--output-dir", type=str, default="output/articles",
                         help="Directory to save extracted articles (default: Article)")
     parser.add_argument("--max-workers", type=int, default=6,
                         help="Maximum number of concurrent workers (default: 6)")

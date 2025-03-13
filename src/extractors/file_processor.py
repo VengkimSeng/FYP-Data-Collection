@@ -8,8 +8,8 @@ import os
 from colorama import Fore, Style
 import traceback
 
-from .logger import log_scrape_status, log_category_progress, log_category_error, log_debug
-from .url_processor import process_url
+from src.extractors.logger import log_scrape_status, log_category_progress, log_category_error, log_debug
+from src.extractors.url_processor import process_url
 
 def process_file(file):
     """

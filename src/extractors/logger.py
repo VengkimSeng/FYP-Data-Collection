@@ -33,8 +33,8 @@ def log_debug(message):
 
 def ensure_log_directories():
     """Create directories for storing log files."""
-    os.makedirs("Category_Logs", exist_ok=True)
-    os.makedirs("Category_Errors", exist_ok=True)
+    os.makedirs("output/logs/categories", exist_ok=True)
+    os.makedirs("output/logs/errors", exist_ok=True)
 
 def get_safe_category_name(category):
     """Convert a category name to a safe filename."""
@@ -45,7 +45,7 @@ def log_category_progress(category, url, message, is_start=False, is_end=False):
     """Log progress for a specific category to a dedicated log file."""
     ensure_log_directories()
     safe_category = get_safe_category_name(category)
-    log_file = os.path.join("Category_Logs", f"{safe_category}.log")
+    log_file = os.path.join("output/logs/categories", f"{safe_category}.log")
     
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     divider = "=" * 50
@@ -67,7 +67,7 @@ def log_category_error(category, url, error_message, html_file=None):
     import json
     ensure_log_directories()
     safe_category = get_safe_category_name(category)
-    error_file = os.path.join("Category_Errors", f"{safe_category}_errors.json")
+    error_file = os.path.join("output/logs/errors", f"{safe_category}_errors.json")
     
     # Initialize or load error data
     error_data = []

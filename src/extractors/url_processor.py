@@ -9,9 +9,9 @@ import traceback
 from urllib.parse import urlparse
 from colorama import Fore, Style
 
-from .logger import log_scrape_status, log_category_progress, log_category_error, log_debug, loading_animation
-from .utils import retry_on_exception, get_base_url
-from .config import SCRAPER_MAP
+from src.extractors.logger import log_scrape_status, log_category_progress, log_category_error, log_debug, loading_animation
+from src.extractors.utils import retry_on_exception, get_base_url
+from src.extractors.config import SCRAPER_MAP
 
 # Fix the global variable reference
 stop_loading = False

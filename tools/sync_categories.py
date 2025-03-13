@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 def main():
     """Main function to sync categories to directory structure."""
-    categories_file = "categories.json"
-    output_dir = "Scrape_urls"
+    categories_file = "config/categories.json"
+    output_dir = "output/urls"
     
     # Check if categories file exists
     if not os.path.exists(categories_file):

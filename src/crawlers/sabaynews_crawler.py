@@ -26,10 +26,10 @@ from bs4 import BeautifulSoup
 
 # Import chrome_setup module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from chrome_setup import setup_chrome_driver, setup_chrome_options
+from src.utils.chrome_setup import setup_chrome_driver, setup_chrome_options
 
 # Import the url_saver module
-from url_saver import save_urls_to_file, save_urls_to_multiple_formats
+from src.utils.url_saver import save_urls_to_file, save_urls_to_multiple_formats
 
 # ==== CONFIGURATION ====
 @dataclass

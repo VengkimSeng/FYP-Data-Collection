@@ -9,11 +9,11 @@ import traceback
 import threading
 from colorama import Fore, Style
 
-from logger import log_scrape_status, log_debug
-from utils import update_checkpoint
+from src.extractors.logger import log_scrape_status, log_debug
+from src.extractors.utils import update_checkpoint
 
 # Default output directory that can be overridden
-OUTPUT_DIR = "Article"
+OUTPUT_DIR = "output/articles"
 
 # Thread-safe lock for file operations
 file_locks = {}

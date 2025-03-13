@@ -24,7 +24,7 @@ def save_urls_to_file(urls: List[str], output_path: str, format_type: str = "jso
     try:
         # If category is specified, save to the Scrape_urls directory
         if category:
-            scrape_dir = "Scrape_urls"
+            scrape_dir = "output/urls"
             os.makedirs(scrape_dir, exist_ok=True)
             output_path = os.path.join(scrape_dir, f"{category}.{format_type}")
             
@@ -65,7 +65,7 @@ def save_urls_to_file(urls: List[str], output_path: str, format_type: str = "jso
         logger.error(f"Error saving URLs to {output_path}: {e}")
         return False
 
-def save_urls_by_category(url_dict: Dict[str, List[str]], base_dir: str = "Scrape_urls", format_type: str = "json") -> bool:
+def save_urls_by_category(url_dict: Dict[str, List[str]], base_dir: str = "output/urls", format_type: str = "json") -> bool:
     """
     Save URLs organized by category.
     
