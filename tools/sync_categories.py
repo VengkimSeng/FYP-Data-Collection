@@ -2,8 +2,7 @@
 """
 Sync Category URLs
 
-This script syncs the categories from categories.json to the Scrape_urls directory structure,
-ensuring that all required directories exist for the article extraction workflow.
+This script ensures the output/urls directory exists for storing category URL files.
 """
 
 import os
@@ -35,14 +34,13 @@ def main():
         
         logger.info(f"Loaded {len(categories)} categories from {categories_file}")
         
-        # Create output directory if it doesn't exist
+        # Create main output directory if it doesn't exist
         os.makedirs(output_dir, exist_ok=True)
+        logger.info(f"Ensured output directory exists: {output_dir}")
         
-        # Create directory for each category
+        # Log the categories that will be processed
         for category in categories:
-            category_dir = os.path.join(output_dir, category)
-            os.makedirs(category_dir, exist_ok=True)
-            logger.info(f"Created directory: {category_dir}")
+            logger.info(f"Ready to process category: {category}")
         
         logger.info("Category sync completed successfully")
         return True

@@ -38,6 +38,26 @@ logger = logging.getLogger("workflow")
 # Determine the correct python command based on platform
 PYTHON_CMD = "python3" if platform.system() == "Darwin" else "python"
 
+def check_dependencies():
+    """Check if required dependencies are installed."""
+    try:
+        import psutil
+        logger.info("psutil module is already installed")
+        return True
+    except ImportError:
+        logger.warning("Required module 'psutil' is not installed")
+        logger.warning("Installing required dependencies...")
+        
+        try:
+            # Try to install psutil
+            subprocess.run([PYTHON_CMD, "-m", "pip", "install", "psutil"], check=True)
+            logger.info("Successfully installed psutil")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to install psutil: {e}")
+            logger.error("Please install dependencies manually: pip install psutil")
+            return False
+
 def run_command(command, description):
     """Run a command with logging and error handling."""
     logger.info(f"Starting: {description}")
@@ -47,8 +67,18 @@ def run_command(command, description):
         # Replace 'python' with the correct Python command for the platform
         if command.startswith("python "):
             command = f"{PYTHON_CMD} {command[7:]}"
+        elif command.startswith("python3 "):
+            command = f"{PYTHON_CMD} {command[8:]}"
         
-        result = subprocess.run(command, shell=True, check=True)
+        # Add the project root to PYTHONPATH to fix import issues
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        env = os.environ.copy()
+        if 'PYTHONPATH' in env:
+            env['PYTHONPATH'] = f"{project_root}:{env['PYTHONPATH']}"
+        else:
+            env['PYTHONPATH'] = project_root
+        
+        result = subprocess.run(command, shell=True, check=True, env=env)
         logger.info(f"Completed: {description}")
         return True
     except subprocess.CalledProcessError as e:
@@ -60,19 +90,36 @@ def run_command(command, description):
 
 def cmd_sync(args):
     """Sync categories.json to Scrape_urls directory."""
-    return run_command("python sync_category_urls.py",
-                     "Syncing categories to Scrape_urls directory")
+    print("Syncing categories to Scrape_urls directory")
+    # Fix: pass a string command and a description
+    script_path = os.path.join(os.path.dirname(__file__), "sync_categories.py")
+    run_command(f"{PYTHON_CMD} {script_path}", "Syncing categories")
 
 def cmd_crawl(args):
     """Run the URL crawler to collect article URLs."""
+    # Fix the path to the master_crawler_controller.py script
+    crawler_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
+                                 "src/crawlers/master_crawler_controller.py")
+    
+    # Change output directory from Scrape_urls to output/urls
+    output_dir = os.path.join("output", "urls")
+    os.makedirs(output_dir, exist_ok=True)
+    
     return run_command(
-        f"python master_crawler_controller.py --urls-per-category {args.urls_per_category} --max-workers {args.max_workers} --output-dir Scrape_urls",
+        f"{PYTHON_CMD} {crawler_script} --urls-per-category {args.urls_per_category} --max-workers {args.max_workers} --output-dir {output_dir}",
         "Running master crawler to collect URLs"
     )
 
 def cmd_extract(args):
     """Extract content from article URLs."""
-    cmd = f"python -m article_crawler --input-dir Scrape_urls --output-dir {args.output_dir} --max-workers {args.extract_workers}"
+    # Fix the path to the article_crawler.py script
+    extractor_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
+                                   "src/extractors/article_crawler.py")
+    
+    # Change input directory from Scrape_urls to output/urls
+    input_dir = os.path.join("output", "urls")
+    
+    cmd = f"{PYTHON_CMD} {extractor_script} --input-dir {input_dir} --output-dir {args.output_dir} --max-workers {args.extract_workers}"
     
     if args.reset_checkpoint:
         cmd += " --reset-checkpoint"
@@ -81,11 +128,17 @@ def cmd_extract(args):
 
 def cmd_all(args):
     """Run the complete workflow."""
+    # Check for required dependencies
+    if not check_dependencies():
+        logger.error("Missing required dependencies. Please install them and try again.")
+        return False
+    
     # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
     
     # Step 1: Sync
-    if not cmd_sync(args):
+    script_path = os.path.join(os.path.dirname(__file__), "sync_categories.py")
+    if not run_command(f"{PYTHON_CMD} {script_path}", "Syncing categories"):
         logger.error("Failed to sync categories. Exiting.")
         return False
     
@@ -108,7 +161,7 @@ def main():
     # Common arguments
     common_parser = argparse.ArgumentParser(add_help=False)
     common_parser.add_argument("--output-dir", type=str, 
-                              default=f"Articles_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                              default="output/articles",
                               help="Output directory for articles")
     
     # Sync command

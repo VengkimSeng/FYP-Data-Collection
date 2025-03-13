@@ -69,8 +69,59 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from src.utils.chrome_setup import setup_chrome_driver, setup_chrome_options
 
 # Add the URL improve directory to the path for importing crawlers
-URL_IMPROVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "1- URL-improve")
-sys.path.append(URL_IMPROVE_DIR)
+CRAWLERS_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(CRAWLERS_DIR)
+
+# Override crawler save functions to redirect output to specified directory
+def override_crawler_save_functions(output_dir):
+    """Override URL saving functions in crawler modules to use our output directory."""
+    try:
+        # Override Dapnews_crawler save function
+        import Dapnews_crawler
+        original_save = Dapnews_crawler.save_to_file
+        Dapnews_crawler.save_to_file = lambda category, links: save_urls_to_file(
+            links, 
+            os.path.join(output_dir, f"{category}.json")
+        )
+        
+        # Override BTV_crawler save function
+        import BTV_crawler
+        BTV_crawler.save_to_file = lambda category, links: save_urls_to_file(
+            links, 
+            os.path.join(output_dir, f"{category}.json")
+        )
+        
+        # Override kohsantepheapdaily_crawler save function
+        import kohsantepheapdaily_crawler
+        kohsantepheapdaily_crawler.save_to_file = lambda category, links: save_urls_to_file(
+            links, 
+            os.path.join(output_dir, f"{category}.json")
+        )
+        
+        # Override sabaynews_crawler save_urls function
+        import sabaynews_crawler
+        sabaynews_crawler.save_urls = lambda txt_file, json_file, urls: save_urls_to_file(
+            urls,
+            os.path.join(output_dir, f"{os.path.basename(json_file).split('_')[0]}.json")
+        )
+        
+        # Override postkhmer_crawler save function
+        import postkhmer_crawler
+        postkhmer_crawler.save_urls_to_file = lambda file_path, urls: save_urls_to_file(
+            urls,
+            os.path.join(output_dir, f"{os.path.basename(file_path).split('_')[0]}.json")
+        )
+        
+        # Override rfanews_crawler save function
+        import rfanews_crawler
+        rfanews_crawler.save_to_json = lambda data, filename: save_urls_to_file(
+            data,
+            os.path.join(output_dir, f"{os.path.basename(filename).split('_')[0]}.json")
+        )
+        
+        logger.info("Successfully overrode crawler save functions to use unified output directory")
+    except Exception as e:
+        logger.error(f"Error overriding crawler save functions: {e}")
 
 # Try to import the url_saver module (used by some crawlers)
 try:
@@ -193,8 +244,8 @@ def crawl_url(url: str, category: str, output_dir: str, min_urls_per_source: int
     
     try:
         # Try to import the crawler module
-        if os.path.exists(os.path.join(URL_IMPROVE_DIR, f"{crawler_name}.py")):
-            sys.path.insert(0, URL_IMPROVE_DIR)
+        if os.path.exists(os.path.join(CRAWLERS_DIR, f"{crawler_name}.py")):
+            sys.path.insert(0, CRAWLERS_DIR)
             crawler_module = importlib.import_module(crawler_name)
             
             # Different crawlers have different APIs, so we'll need to adapt
@@ -498,6 +549,9 @@ def process_categories(categories: Dict[str, List[str]], args):
     # Temporary directory for intermediate results
     temp_dir = os.path.join(args.output_dir, "temp")
     os.makedirs(temp_dir, exist_ok=True)
+    
+    # Override crawler save functions to use our output directory
+    override_crawler_save_functions(args.output_dir)
     
     # Load any existing URLs if in resume mode
     category_urls = {category: set() for category in categories}

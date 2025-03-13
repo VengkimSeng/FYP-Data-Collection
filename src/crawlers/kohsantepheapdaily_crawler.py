@@ -244,9 +244,11 @@ def extract_links_from_page(soup, base_url, links_set):
 
 def save_to_file(category, links):
     """Save the scraped links to a category-specific file."""
-    folder = "kohsantepheapdaily"
-    os.makedirs(folder, exist_ok=True)  # Create the folder if it doesn't exist
-    file_path = os.path.join(folder, f"{category}.json")
+    # This function will be overridden by master_crawler_controller.py
+    # but we'll make it more centralized for when run standalone
+    output_dir = os.environ.get("CRAWLER_OUTPUT_DIR", "output/urls")
+    os.makedirs(output_dir, exist_ok=True)
+    file_path = os.path.join(output_dir, f"{category}.json")
     
     # Use the common save_urls_to_file function
     save_urls_to_file(links, file_path)

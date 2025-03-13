@@ -9,6 +9,7 @@ import threading
 import ssl
 import sys
 import re  # Import for regex pattern matching
+import json  # Import for JSON saving
 
 # Add parent directory to path to import chrome_setup
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -80,17 +81,19 @@ def parse_links(soup, base_url):
     return links
 
 def save_to_file(category, links):
+    """Save the scraped links to category-specific files."""
     global saved_links
-    folder = "Dapnews"
-    os.makedirs(folder, exist_ok=True)
+    # Use output directory from environment variable or default
+    output_dir = os.environ.get("CRAWLER_OUTPUT_DIR", "output/urls")
+    os.makedirs(output_dir, exist_ok=True)
     
-    # Map category keywords to filenames
+    # Map category keywords to output categories
     category_mappings = {
-        "economic": "Dapnews_url_economic.txt",
-        "sport": "Dapnews_url_sport.txt",
-        "politic": "Dapnews_url_politic.txt",
-        "technology": "Dapnews_url_tech.txt",
-        "health": "Dapnews_url_health.txt"
+        "economic": "economic",
+        "sport": "sport",
+        "politic": "politic",
+        "technology": "technology",
+        "health": "health"
     }
     
     # Sort URLs by category
@@ -113,21 +116,19 @@ def save_to_file(category, links):
     # Save each category to its respective file
     for cat, cat_links in categorized_links.items():
         if cat_links:  # Only write if there are links
-            file_path = os.path.join(folder, category_mappings[cat])
-            with open(file_path, "a") as f:
-                for link in cat_links:
-                    f.write(f"{link}\n")
-            logging.info(f"Saved {len(cat_links)} {cat} links")
+            file_path = os.path.join(output_dir, f"{category_mappings[cat]}.json")
+            
+            # Use the url_saver module if available
+            try:
+                from src.utils.url_saver import save_urls_to_file
+                save_urls_to_file(cat_links, file_path)
+            except ImportError:
+                # Fallback to direct JSON saving
+                with open(file_path, "w", encoding="utf-8") as f:
+                    json.dump(list(cat_links), f, ensure_ascii=False, indent=4)
+            
+            logging.info(f"Saved {len(cat_links)} {cat} links to {file_path}")
             saved_links.update(cat_links)
-    
-    # Save other links
-    if other_links:
-        file_path = os.path.join(folder, "Dapnews_url_other.txt")
-        with open(file_path, "a") as f:
-            for link in other_links:
-                f.write(f"{link}\n")
-        logging.info(f"Saved {len(other_links)} uncategorized links")
-        saved_links.update(other_links)
 
 def crawl_pagination(base_url, start_url, category):
     """Crawl through paginated URLs and return all discovered links."""

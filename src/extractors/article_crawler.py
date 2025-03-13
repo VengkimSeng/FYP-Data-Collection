@@ -437,7 +437,7 @@ def process_url(url, category):
         log_scrape_status(f"🔍 Checking scraper function for: {base_url}")
         log_category_progress(category, url, f"Using base URL: {base_url}")
         
-        if base_url in SCRAPER_MAP:
+        if (base_url in SCRAPER_MAP):
             scraper_function = SCRAPER_MAP[base_url]
             log_scrape_status(f"🔧 Using {scraper_function.__name__} for: {url}")
             log_category_progress(category, url, f"Selected scraper: {scraper_function.__name__}")

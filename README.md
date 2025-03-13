@@ -106,13 +106,21 @@ The CLI offers a convenient way to run the complete process or specific steps:
 
 ```bash
 # Get help
-python tools/cli.py --help
+python3 tools/cli.py --help   # macOS
+python tools/cli.py --help    # Windows
 
 # Run specific steps
-python tools/cli.py sync      # Sync categories.json to output directory structure
-python tools/cli.py crawl     # Collect article URLs
-python tools/cli.py extract   # Extract content from collected URLs
-python tools/cli.py all       # Run complete workflow
+python3 tools/cli.py sync     # macOS: Sync categories.json to output directory structure
+python tools/cli.py sync      # Windows: Sync categories.json to output directory structure
+
+python3 tools/cli.py crawl    # macOS: Collect article URLs
+python tools/cli.py crawl     # Windows: Collect article URLs
+
+python3 tools/cli.py extract  # macOS: Extract content from collected URLs
+python tools/cli.py extract   # Windows: Extract content from collected URLs
+
+python3 tools/cli.py all      # macOS: Run complete workflow
+python tools/cli.py all       # Windows: Run complete workflow
 ```
 
 Common options:
