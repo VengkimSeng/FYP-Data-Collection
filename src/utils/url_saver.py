@@ -87,6 +87,37 @@ def save_urls_by_category(url_dict: Dict[str, List[str]], base_dir: str = "outpu
             
     return success
 
+def save_urls_to_multiple_formats(urls, base_filename, formats=None):
+    """
+    Save URLs to multiple file formats.
+    
+    Args:
+        urls: Collection of URLs to save
+        base_filename: Base filename without extension
+        formats: List of formats to save (default: ['json', 'txt'])
+    
+    Returns:
+        Dict of saved filenames by format
+    """
+    if formats is None:
+        formats = ['json', 'txt']
+    
+    result = {}
+    
+    for fmt in formats:
+        if fmt == 'json':
+            filename = f"{base_filename}.json"
+            save_urls_to_file(urls, filename)
+            result['json'] = filename
+        elif fmt == 'txt':
+            filename = f"{base_filename}.txt"
+            with open(filename, 'w', encoding='utf-8') as f:
+                for url in urls:
+                    f.write(f"{url}\n")
+            result['txt'] = filename
+    
+    return result
+
 # For testing the module directly
 if __name__ == "__main__":
     # Example usage

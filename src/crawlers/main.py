@@ -3,30 +3,49 @@
 Master Crawler Controller
 
 This script orchestrates multiple crawlers to extract article URLs from different websites
-based on categories defined in categories.json. It distributes crawling tasks, manages results,
-and organizes URLs into category-based JSON files.
-
-Usage:
-    python master_crawler_controller.py [--urls-per-category NUM] [--max-workers NUM]
-
-Options:
-    --urls-per-category    Target number of URLs to collect per category (default: 2500)
-    --max-workers          Maximum number of concurrent crawlers (default: 3)
+based on categories defined in categories.json.
 """
 
 import os
+import sys
 import json
 import random
 import argparse
 import logging
 import time
-import sys
 import importlib
 import threading
 import concurrent.futures
 from typing import Dict, List, Set, Tuple, Optional
 from urllib.parse import urlparse
 import shutil
+
+# Add the project root and src directory to Python path
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(project_root)
+sys.path.append(os.path.join(project_root, "src"))
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("master_crawler.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
+logger = logging.getLogger("master_crawler")
+
+# Local imports (after path setup)
+from utils.chrome_setup import setup_chrome_driver, setup_chrome_options
+from utils.crawler_components import CrawlerComponents
+from crawlers.crawler_utils import check_required_packages, setup_smart_components 
+from crawlers.category_handler import CategoryHandler
+from crawlers.url_processor import save_urls_to_file, filter_article_urls
+
+# Check for required packages before proceeding
+check_required_packages()
 
 # Define required packages
 REQUIRED_PACKAGES = ["selenium", "bs4"]
@@ -52,24 +71,12 @@ def check_required_packages():
 # Check for required packages before attempting imports
 check_required_packages()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("master_crawler.log"),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-
-logger = logging.getLogger("master_crawler")
-
 # Import the chrome_setup module for driver configuration
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from src.utils.chrome_setup import setup_chrome_driver, setup_chrome_options
 
 # Add the URL improve directory to the path for importing crawlers
-CRAWLERS_DIR = os.path.dirname(os.path.abspath(__file__))
+CRAWLERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Urls_Crawler")
 sys.path.append(CRAWLERS_DIR)
 
 # Override crawler save functions to redirect output to specified directory
@@ -77,7 +84,7 @@ def override_crawler_save_functions(output_dir):
     """Override URL saving functions in crawler modules to use our output directory."""
     try:
         # Override Dapnews_crawler save function
-        import Dapnews_crawler
+        import crawlers.Urls_Crawler.Dapnews_crawler as Dapnews_crawler
         original_save = Dapnews_crawler.save_to_file
         Dapnews_crawler.save_to_file = lambda category, links: save_urls_to_file(
             links, 
@@ -85,35 +92,35 @@ def override_crawler_save_functions(output_dir):
         )
         
         # Override BTV_crawler save function
-        import BTV_crawler
+        import crawlers.Urls_Crawler.BTV_crawler as BTV_crawler
         BTV_crawler.save_to_file = lambda category, links: save_urls_to_file(
             links, 
             os.path.join(output_dir, f"{category}.json")
         )
         
         # Override kohsantepheapdaily_crawler save function
-        import kohsantepheapdaily_crawler
+        import crawlers.Urls_Crawler.kohsantepheapdaily_crawler as kohsantepheapdaily_crawler
         kohsantepheapdaily_crawler.save_to_file = lambda category, links: save_urls_to_file(
             links, 
             os.path.join(output_dir, f"{category}.json")
         )
         
         # Override sabaynews_crawler save_urls function
-        import sabaynews_crawler
+        import crawlers.Urls_Crawler.sabaynews_crawler as sabaynews_crawler
         sabaynews_crawler.save_urls = lambda txt_file, json_file, urls: save_urls_to_file(
             urls,
             os.path.join(output_dir, f"{os.path.basename(json_file).split('_')[0]}.json")
         )
         
         # Override postkhmer_crawler save function
-        import postkhmer_crawler
+        import crawlers.Urls_Crawler.postkhmer_crawler as postkhmer_crawler
         postkhmer_crawler.save_urls_to_file = lambda file_path, urls: save_urls_to_file(
             urls,
             os.path.join(output_dir, f"{os.path.basename(file_path).split('_')[0]}.json")
         )
         
         # Override rfanews_crawler save function
-        import rfanews_crawler
+        import crawlers.Urls_Crawler.rfanews_crawler as rfanews_crawler
         rfanews_crawler.save_to_json = lambda data, filename: save_urls_to_file(
             data,
             os.path.join(output_dir, f"{os.path.basename(filename).split('_')[0]}.json")
@@ -245,8 +252,8 @@ def crawl_url(url: str, category: str, output_dir: str, min_urls_per_source: int
     try:
         # Try to import the crawler module
         if os.path.exists(os.path.join(CRAWLERS_DIR, f"{crawler_name}.py")):
-            sys.path.insert(0, CRAWLERS_DIR)
-            crawler_module = importlib.import_module(crawler_name)
+            sys.path.insert(0, os.path.dirname(CRAWLERS_DIR))  # Add parent directory to path
+            crawler_module = importlib.import_module(f"crawlers.Urls_Crawler.{crawler_name}")
             
             # Different crawlers have different APIs, so we'll need to adapt
             collected_urls = set()
@@ -660,34 +667,37 @@ def process_categories(categories: Dict[str, List[str]], args):
     except Exception as e:
         logger.warning(f"Error cleaning up temporary directory: {e}")
 
+import os
+import sys
+import json
+import logging
+from concurrent.futures import ThreadPoolExecutor
+from typing import Dict, List, Set
+import time
+import random
+
+# Add parent directory to Python path for absolute imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from crawlers.category_handler import CategoryHandler
+
 def main():
     """Main entry point for the crawler controller."""
     args = parse_arguments()
     
-    logger.info(f"Starting master crawler controller")
-    logger.info(f"Target URLs per category: {args.urls_per_category}")
-    logger.info(f"Maximum worker threads: {args.max_workers}")
-    logger.info(f"Resume mode: {args.resume}")
-    logger.info(f"Minimum URLs per source: {args.min_urls_per_source}")
+    # Initialize components
+    components = setup_smart_components(args)
     
     # Load categories
-    logger.info(f"Loading categories from {args.categories_file}")
     categories = load_categories(args.categories_file)
     if not categories:
         logger.error("No categories found or error loading categories file.")
         return
-    
-    total_source_urls = sum(len(urls) for urls in categories.values())
-    logger.info(f"Loaded {len(categories)} categories with {total_source_urls} total source URLs")
-    
-    # Ensure output directory exists
-    os.makedirs(args.output_dir, exist_ok=True)
-    logger.info(f"Output directory: {args.output_dir}")
-    
-    # Process all categories
+        
+    # Process categories directly
     process_categories(categories, args)
     
-    logger.info("Master crawler controller finished")
+    logger.info("Crawling completed successfully")
 
 if __name__ == "__main__":
     main()

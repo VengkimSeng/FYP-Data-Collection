@@ -64,19 +64,18 @@ def run_command(command, description):
     logger.info(f"Command: {command}")
     
     try:
-        # Replace 'python' with the correct Python command for the platform
-        if command.startswith("python "):
-            command = f"{PYTHON_CMD} {command[7:]}"
-        elif command.startswith("python3 "):
-            command = f"{PYTHON_CMD} {command[8:]}"
-        
-        # Add the project root to PYTHONPATH to fix import issues
+        # Add both project root and src directory to PYTHONPATH
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         env = os.environ.copy()
+        python_path = [
+            project_root,
+            os.path.join(project_root, "src")
+        ]
+        
         if 'PYTHONPATH' in env:
-            env['PYTHONPATH'] = f"{project_root}:{env['PYTHONPATH']}"
-        else:
-            env['PYTHONPATH'] = project_root
+            python_path.append(env['PYTHONPATH'])
+            
+        env['PYTHONPATH'] = os.pathsep.join(python_path)
         
         result = subprocess.run(command, shell=True, check=True, env=env)
         logger.info(f"Completed: {description}")
@@ -97,9 +96,9 @@ def cmd_sync(args):
 
 def cmd_crawl(args):
     """Run the URL crawler to collect article URLs."""
-    # Fix the path to the master_crawler_controller.py script
+    # Fix the path to point to main.py instead of master_crawler_controller.py
     crawler_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
-                                 "src/crawlers/master_crawler_controller.py")
+                                "src/crawlers/main.py")
     
     # Change output directory from Scrape_urls to output/urls
     output_dir = os.path.join("output", "urls")

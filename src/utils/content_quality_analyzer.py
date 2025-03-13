@@ -36,7 +36,7 @@ class ContentQualityAnalyzer:
     ]
     
     # Compile the patterns for efficiency
-    AD_REGEX = re.compile('|'.join(AD_PATTERNS), re.IGNORECASE)
+    AD_REGEX = re.compile('|'.join(AD_PATTERNS).replace('[s-_]', '[s_-]'), re.IGNORECASE)
     
     def __init__(
         self,
