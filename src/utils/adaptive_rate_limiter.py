@@ -157,4 +157,6 @@ class AdaptiveRateLimiter:
         Returns:
             Dictionary mapping domain names to their current delays
         """
-        return dict(self.domain_delays)
+        stats = dict(self.domain_delays)
+        logger.debug(f"Current domain delays: {stats}")
+        return stats

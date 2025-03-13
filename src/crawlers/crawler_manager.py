@@ -268,6 +268,14 @@ def crawl_url(url: str, category: str, components: CrawlerComponents, min_urls_p
         domain = urlparse(url).netloc
         filtered_urls = filter_article_urls(list(article_urls), domain)
         
+        # Integrate content quality
+        filtered_urls = {
+            link for link in filtered_urls
+            if components.quality_analyzer.is_good(link)
+               and not components.fingerprinter.is_duplicate(link)
+        }
+        components.rate_limiter.success(url)
+        
         # Update state
         if components.crawler_state:
             components.crawler_state.record_url_completion(
@@ -280,6 +288,7 @@ def crawl_url(url: str, category: str, components: CrawlerComponents, min_urls_p
         return filtered_urls
         
     except Exception as e:
+        components.rate_limiter.failure(url)
         logger.error(f"Error crawling {url}: {e}")
         if components.crawler_state:
             components.crawler_state.record_url_completion(

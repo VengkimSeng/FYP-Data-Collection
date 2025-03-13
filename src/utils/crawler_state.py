@@ -536,6 +536,10 @@ class CrawlerState:
                 }
             }
             
+            # Add rate limiter delays if available
+            if hasattr(self, 'rate_limiter') and self.rate_limiter:
+                summary["rate_limiter"] = self.rate_limiter.get_domain_stats()
+            
             return summary
     
     def _format_duration(self, seconds: float) -> str:
