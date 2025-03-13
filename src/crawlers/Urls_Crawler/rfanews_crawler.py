@@ -174,38 +174,21 @@ def scrape_urls(base_url, max_urls=6000, retry_count=3, url_manager=None):
                     logger.info(f"Saving {new_urls} new URLs")
                     # If using URL manager, it will auto-save, otherwise save manually
                     if not url_manager:
-                        filename = f"{category}_urls.json"
-                        save_progress(base_url, current_url, list(unique_urls), pages_scraped)
-                
-                # Also save periodically even if no new URLs
+                        save_progress(base_url, current_url, unique_urls, pages_scraped)
                 elif pages_scraped % 5 == 0 and not url_manager:
-                    filename = f"{category}_urls.json"
-                    save_progress(base_url, current_url, list(unique_urls), pages_scraped)
-                
-                # Check if we've reached the end (no new URLs found)
-                if new_urls == 0 and pages_scraped > 5:
-                    logger.info(f"No new URLs found after page {pages_scraped}. Considering pagination complete.")
-                    consecutive_empty_pages = progress.get('consecutive_empty_pages', 0) + 1
-                    if consecutive_empty_pages >= 3:
-                        logger.info("Three consecutive pages with no new URLs. Stopping.")
-                        break
-                    progress['consecutive_empty_pages'] = consecutive_empty_pages
-                else:
-                    progress['consecutive_empty_pages'] = 0
-                
-                # Increment the URL and navigate to the next page
+                    save_progress(base_url, current_url, unique_urls, pages_scraped)
+
+                # Increment URL for next page
                 current_url = increment_url(current_url, 15)
                 pages_scraped += 1
-                logger.info(f"Moving to page {pages_scraped}")
                 
             except Exception as e:
-                logger.error(f"Error processing page: {e}")
-                # Try to continue with the next page
+                logger.error(f"Error processing page {current_url}: {e}")
                 current_url = increment_url(current_url, 15)
                 pages_scraped += 1
                 
     except Exception as e:
-        logger.error(f"Critical error: {e}")
+        logger.error(f"Error during scraping: {e}")
     finally:
         if driver:
             driver.quit()

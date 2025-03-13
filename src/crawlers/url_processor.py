@@ -37,15 +37,21 @@ def filter_article_urls(urls: List[str], domain: str) -> List[str]:
     logger.debug(f"Filtered {len(filtered)} article URLs from {len(urls)} for {domain}")
     return filtered
 
-def save_urls_to_file(urls: List[str], output_path: str, format_type: str = "json") -> bool:
+def save_urls_to_file(urls: List[str], output_path: str, format_type: str = "json",
+                     ensure_ascii: bool = False, indent: int = 2, sort_urls: bool = True) -> bool:
     """Save URLs to a file in the specified format."""
     try:
         os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
         unique_urls = list(set(urls))
         
+        if sort_urls:
+            unique_urls.sort()
+        
         if format_type.lower() == "json":
-            with open(output_path, "w", encoding="utf-8") as f:
-                json.dump(unique_urls, f, ensure_ascii=False, indent=2)
+            temp_file = f"{output_path}.temp"
+            with open(temp_file, "w", encoding="utf-8") as f:
+                json.dump(unique_urls, f, ensure_ascii=ensure_ascii, indent=indent)
+            os.replace(temp_file, output_path)
         else:
             with open(output_path, "w", encoding="utf-8") as f:
                 for url in unique_urls:

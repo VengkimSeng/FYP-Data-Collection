@@ -10,6 +10,7 @@ import ssl
 import sys
 import re  # Import for regex pattern matching
 import json  # Import for JSON saving
+from typing import List
 
 # Add parent directory to path to import chrome_setup
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -121,6 +122,10 @@ def crawl_pagination(base_url, start_url, category, url_manager):
         logging.error(f"Error crawling pagination: {e}")
     finally:
         driver.quit()
+
+def save_to_file(category: str, links: List[str]) -> None:
+    output_path = os.path.join("output", f"{category}.json")
+    save_urls_to_file(links, output_path)
 
 def crawl_dapnews(output_dir="output/urls", urls_per_category=500):
     """Main function to crawl Dapnews using URLManager."""

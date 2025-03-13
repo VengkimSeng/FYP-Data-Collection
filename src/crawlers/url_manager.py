@@ -122,10 +122,17 @@ class URLManager:
         
         return results
 
-    def _save_urls_to_file(self, urls: Iterable[str], file_path: str, format_type: str = "json", ensure_ascii: bool = False, indent: int = 4) -> bool:
+    def _save_urls_to_file(self, urls: Iterable[str], file_path: str, 
+                          format_type: str = "json", ensure_ascii: bool = False, 
+                          indent: int = 4, sort_urls: bool = True) -> bool:
+        """Save URLs to a file with proper error handling and atomic writes."""
         try:
-            os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
-            urls_list = sorted(list(set(urls)))
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            urls_list = list(set(urls))
+            
+            if sort_urls:
+                urls_list.sort()
+                
             if format_type.lower() == "json":
                 temp_file = f"{file_path}.temp"
                 with open(temp_file, "w", encoding="utf-8") as f:
@@ -137,7 +144,7 @@ class URLManager:
                         f.write(f"{url}\n")
             return True
         except Exception as e:
-            logger.error(f"Error saving URLs to {file_path}: {e}")
+            self.logger.error(f"Error saving URLs to {file_path}: {e}")
             return False
 
     def _save_urls_with_metadata(self, category: str, urls: Iterable[str], file_path: str) -> bool:

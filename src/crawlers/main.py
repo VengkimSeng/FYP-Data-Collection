@@ -85,7 +85,6 @@ def override_crawler_save_functions(output_dir):
     try:
         # Override Dapnews_crawler save function
         import crawlers.Urls_Crawler.Dapnews_crawler as Dapnews_crawler
-        original_save = Dapnews_crawler.save_to_file
         Dapnews_crawler.save_to_file = lambda category, links: save_urls_to_file(
             links, 
             os.path.join(output_dir, f"{category}.json")
@@ -246,7 +245,7 @@ def crawl_url(url: str, category: str, output_dir: str, min_urls_per_source: int
     logger.info(f"Using {crawler_name} to crawl {url} (category: {category})")
     
     # Temporary output directory for this crawl
-    temp_dir = os.path.join(output_dir, "temp", f"{int(time.time())}_{crawler_name}")
+    temp_dir = os.path.join(output_dir, f"{int(time.time())}_{crawler_name}")
     os.makedirs(temp_dir, exist_ok=True)
     
     try:

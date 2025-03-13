@@ -236,18 +236,18 @@ def extract_links_from_page(soup, base_url, links_set):
                 if '/article/' in full_url or full_url.endswith('.html'):
                     links_set.add(full_url)
 
-def crawl_url(base_url, url_manager, category):
-    """Crawl a single URL and add links to URL manager."""
+def crawl_url(url: str, shared_links: set, lock: threading.Lock, category: str) -> None:
     driver = setup_selenium()
     try:
-        logging.info(f"Crawling URL: {base_url}")
-        links = fetch_links(driver, base_url, category)
+        logging.info(f"Crawling URL: {url}")
+        links = fetch_links(driver, url, category)
         
-        # Add links to URL manager
-        added = url_manager.add_urls(category, links)
-        logging.info(f"Added {added} new links to {category} from URL: {base_url}")
+        # Add links to shared set with thread safety
+        with lock:
+            shared_links.update(links)
+        logging.info(f"Added {len(links)} new links to shared set from URL: {url}")
     except Exception as e:
-        logging.error(f"Error crawling URL {base_url}: {e}")
+        logging.error(f"Error crawling URL {url}: {e}")
     finally:
         driver.quit()
 
