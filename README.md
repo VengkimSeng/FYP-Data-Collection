@@ -5,11 +5,11 @@ This system crawls Khmer language news articles from multiple websites, organize
 ## Table of Contents
 
 - [Overview](#overview)
+- [Directory Structure](#directory-structure)
 - [Installation](#installation)
-- [System Components](#system-components)
 - [Quick Start Guide](#quick-start-guide)
 - [Detailed Usage](#detailed-usage)
-  - [Using the Workflow CLI](#using-the-workflow-cli)
+  - [Using the CLI](#using-the-cli)
   - [URL Collection](#url-collection)
   - [Content Extraction](#content-extraction)
   - [Running Individual Crawlers](#running-individual-crawlers)
@@ -25,13 +25,40 @@ The Khmer News Article Crawler System automates the collection of Khmer language
 
 The system is designed to be modular, allowing for easy addition of new news sources and customization of extraction parameters.
 
+## Directory Structure
+
+```
+FYP-Data-Collection/
+│
+├── src/                    # Source code
+│   ├── crawlers/           # URL crawler scripts for each website
+│   ├── extractors/         # Article content extraction scripts
+│   │   └── scrapers/       # Website-specific scraper implementations
+│   └── utils/              # Shared utility functions
+│
+├── config/                 # Configuration files
+│   └── categories.json     # Website categories and URLs
+│
+├── output/                 # Output directories
+│   ├── urls/               # Collected article URLs
+│   ├── articles/           # Extracted article content
+│   └── logs/               # Log files
+│
+├── tools/                  # Scripts and tools
+│   ├── cli.py              # Command-line interface
+│   ├── workflow_runner.py  # Complete workflow automation
+│   └── sync_categories.py  # Sync categories to directory structure
+│
+└── requirements.txt        # Python dependencies
+```
+
 ## Installation
 
 1. Clone the repository:
 
    ```bash
    git clone <repository-url>
-   cd FYP-improved
+   cd FYP-Data-Collection
    ```
 
 2. Install the required dependencies:
@@ -51,49 +78,41 @@ The system is designed to be modular, allowing for easy addition of new news sou
      - Or manually place it at "/opt/homebrew/bin/Chromedriver"
    - For Windows users:
      - Download ChromeDriver from https://chromedriver.chromium.org/downloads
-     - Add it to your PATH or update its path in `chrome_setup.py`
-
-## System Components
-
-- **Master Controller**: Orchestrates all crawling tasks (`master_crawler_controller.py`)
-- **Individual Crawlers**: Specialized crawlers for each news website (`1- URL-improve/` directory)
-- **Overall Article Crawler**: Extracts article content from URLs (`A_Overall_Article_Crawler.py`)
-- **Chrome Setup**: Common browser configuration (`chrome_setup.py`)
-- **Workflow CLI**: Command-line interface for the complete workflow (`run_workflow_cli.py`)
+     - Add it to your PATH or update its path in `src/utils/chrome_setup.py`
 
 ## Quick Start Guide
 
-The easiest way to run the complete workflow is using the Workflow CLI:
+The easiest way to run the complete workflow is using the CLI:
 
 ```bash
 # For macOS
-python3 run_workflow_cli.py all
+python3 tools/cli.py all
 
 # For Windows
-python run_workflow_cli.py all
+python tools/cli.py all
 
 # Specify output directory
-python3 run_workflow_cli.py all --output-dir Articles_20230101  # macOS
-python run_workflow_cli.py all --output-dir Articles_20230101   # Windows
+python3 tools/cli.py all --output-dir output/articles/20230101  # macOS
+python tools/cli.py all --output-dir output/articles/20230101   # Windows
 ```
 
 The system automatically detects your operating system and uses the appropriate Python command.
 
 ## Detailed Usage
 
-### Using the Workflow CLI
+### Using the CLI
 
-The Workflow CLI offers a convenient way to run the complete process or specific steps:
+The CLI offers a convenient way to run the complete process or specific steps:
 
 ```bash
 # Get help
-python run_workflow_cli.py --help
+python tools/cli.py --help
 
 # Run specific steps
-python run_workflow_cli.py sync      # Sync categories.json to Scrape_urls directory
-python run_workflow_cli.py crawl     # Collect article URLs
-python run_workflow_cli.py extract   # Extract content from collected URLs
-python run_workflow_cli.py all       # Run complete workflow
+python tools/cli.py sync      # Sync categories.json to output directory structure
+python tools/cli.py crawl     # Collect article URLs
+python tools/cli.py extract   # Extract content from collected URLs
+python tools/cli.py all       # Run complete workflow
 ```
 
 Common options:
@@ -110,7 +129,7 @@ The URL collection phase can be run independently using the master crawler contr
 
 ```bash
 # Run the master crawler to collect article URLs
-python master_crawler_controller.py --urls-per-category 2500 --max-workers 3
+python src/crawlers/master_crawler_controller.py --urls-per-category 2500 --max-workers 3
 ```
 
 Options:
@@ -119,8 +138,8 @@ Options:
 - `--max-workers`: Maximum concurrent crawlers (default: 3)
 - `--resume`: Resume from a previous crawl
 - `--min-urls-per-source`: Minimum URLs to try extracting from each source (default: 50)
-- `--output-dir`: Where to save output files (default: "Selected_URLs")
-- `--categories-file`: Path to categories.json file (default: categories.json)
+- `--output-dir`: Where to save output files (default: "output/urls")
+- `--categories-file`: Path to categories.json file (default: config/categories.json)
 
 ### Content Extraction
 
@@ -128,13 +147,13 @@ The content extraction phase can be run independently:
 
 ```bash
 # Extract content from collected URLs
-python run_article_crawler.py --input-dir Scrape_urls --output-dir Articles
+python src/extractors/article_crawler.py --input-dir output/urls --output-dir output/articles
 ```
 
 Options:
 
-- `--input-dir`: Directory containing URL JSON files (default: "Scrape_urls")
-- `--output-dir`: Directory to save extracted articles (default: "Article")
+- `--input-dir`: Directory containing URL JSON files (default: "output/urls")
+- `--output-dir`: Directory to save extracted articles (default: "output/articles")
 - `--max-workers`: Maximum number of concurrent workers (default: 6)
 - `--reset-checkpoint`: Reset the checkpoint file to process all URLs
 - `--verbose`: Enable verbose output
@@ -145,10 +164,10 @@ Each crawler can be run independently for testing or specific data collection:
 
 ```bash
 # Example: Run the Sabay News crawler
-python "1- URL-improve/sabaynews_crawler.py" --output sabay_articles --categories sport technology
+python src/crawlers/sabaynews_crawler.py --output output/urls/sabay --categories sport technology
 
 # Example: Run the PostKhmer crawler
-python "1- URL-improve/postkhmer_crawler.py"
+python src/crawlers/postkhmer_crawler.py
 ```
 
 ## Configuration
@@ -156,7 +175,7 @@ python "1- URL-improve/postkhmer_crawler.py"
 All source URLs are stored in a single configuration file:
 
 ```json
-// categories.json
+// config/categories.json
 {
   "sport": [
     "https://btv.com.kh/category/sport",
@@ -198,6 +217,6 @@ Edit this file to add or remove news sources and categories.
 
 If issues persist, check the log files:
 
-- `workflow.log`: General workflow logs
-- `Category_Logs/`: Logs for each category
-- `Category_Errors/`: Error logs for each category
+- `output/logs/workflow.log`: General workflow logs
+- `output/logs/categories/`: Logs for each category
+- `output/logs/errors/`: Error logs for each category

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# !/usr/bin/env python3
 """
 Master Crawler Controller
 
@@ -27,6 +27,30 @@ import concurrent.futures
 from typing import Dict, List, Set, Tuple, Optional
 from urllib.parse import urlparse
 import shutil
+
+# Define required packages
+REQUIRED_PACKAGES = ["selenium", "bs4"]
+
+# Check for required packages before proceeding
+def check_required_packages():
+    """Check if required packages are installed."""
+    missing_packages = []
+    for package in REQUIRED_PACKAGES:
+        try:
+            importlib.import_module(package)
+        except ImportError:
+            missing_packages.append(package)
+    
+    if missing_packages:
+        print("\n⚠️  Missing required Python packages ⚠️")
+        print("Please install the following packages before running this script:")
+        print(f"pip install {' '.join(missing_packages)}")
+        print("\nFull installation command:")
+        print(f"pip install {' '.join(REQUIRED_PACKAGES)}")
+        sys.exit(1)
+
+# Check for required packages before attempting imports
+check_required_packages()
 
 # Configure logging
 logging.basicConfig(
