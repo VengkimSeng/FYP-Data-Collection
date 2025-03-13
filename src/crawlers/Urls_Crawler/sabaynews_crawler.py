@@ -128,7 +128,7 @@ def scrape_urls(driver: webdriver.Chrome) -> Set[str]:
             
     return urls
 
-def scrape_category(base_url: str, output_prefix: str, config: CrawlerConfig) -> Dict[str, str]:
+def scrape_category(base_url: str, output_prefix: str, config: CrawlerConfig) -> Set[str]:
     """
     Scrape URLs from a specific category by navigating through pages.
     
@@ -138,13 +138,11 @@ def scrape_category(base_url: str, output_prefix: str, config: CrawlerConfig) ->
         config: The crawler configuration.
         
     Returns:
-        Dictionary containing paths to the created files.
+        Set of collected article URLs.
     """
     driver = setup_selenium(config)
     page_number = 1
     all_urls = set()
-    txt_file = f"{output_prefix}_urls.txt"
-    json_file = f"{output_prefix}_urls.json"
     
     try:
         while True:
@@ -181,35 +179,24 @@ def scrape_category(base_url: str, output_prefix: str, config: CrawlerConfig) ->
                 
     finally:
         driver.quit()
-        
-    return {
-        "txt_file": txt_file,
-        "json_file": json_file,
-        "url_count": len(all_urls),
-        "urls": list(all_urls)  # Add the actual URLs to the result
-    }
+    
+    return all_urls
 
 # ==== MAIN FUNCTIONS ====
 def scrape_all_categories(config: CrawlerConfig, url_manager: URLManager = None) -> None:
     """
     Scrape all configured categories concurrently.
-    
-    Args:
-        config: The crawler configuration.
-        url_manager: Optional URLManager instance to use for URL collection.
     """
-    # Create base directory if it doesn't exist
-    os.makedirs(config.output_dir, exist_ok=True)
-    
     # Create URL manager if not provided
     if url_manager is None:
-        url_manager = URLManager(config.output_dir, "sabaynews")
+        output_dir = "output/urls"  # Use main output directory directly
+        url_manager = URLManager(output_dir, "sabaynews", auto_save=False)  # Disable auto-save to temp
     
     # Prepare tasks for concurrent execution
     tasks = []
     for category in config.categories:
         base_url = f"https://news.sabay.com.kh/ajax/topics/{category}"
-        output_prefix = f"{config.output_dir}/{category}"
+        output_prefix = os.path.join(url_manager.output_dir, category)
         tasks.append((base_url, output_prefix, category))
     
     # Execute tasks concurrently
@@ -225,19 +212,17 @@ def scrape_all_categories(config: CrawlerConfig, url_manager: URLManager = None)
             try:
                 result = future.result()
                 
-                # Add URLs to URL manager
-                if url_manager and 'urls' in result and result['urls']:
-                    added = url_manager.add_urls(category, result['urls'])
-                    logger.info(f"Added {added} URLs to URL manager for category '{category}'")
-                
-                logger.info(f"Category '{category}' scraping completed: {result['url_count']} URLs collected")
+                # Add URLs to URL manager and save immediately
+                if url_manager and result:
+                    added = url_manager.add_urls(category, result)
+                    # Save directly to output file after adding URLs
+                    output_file = os.path.join(url_manager.output_dir, f"{category}.json")
+                    save_urls_to_file(list(result), output_file)
+                    logger.info(f"Added and saved {added} URLs for category '{category}' to {output_file}")
             except Exception as e:
                 logger.error(f"Error scraping category '{category}': {str(e)}")
     
-    # Save final results if using URL manager
-    if url_manager:
-        results = url_manager.save_final_results()
-        logger.info(f"Total URLs saved: {sum(results.values())}")
+    logger.info("All categories processed")
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -276,10 +261,8 @@ def main() -> None:
     logger.info(f"ChromeDriver Path: {config.chrome_driver_path}")
     logger.info(f"Categories to scrape: {config.categories}")
     
-    # Initialize URL manager with output/urls as the base directory
-    # This ensures URLs are saved to output/urls/{category}.json
-    output_dir = "output/urls"
-    url_manager = URLManager(output_dir, "sabaynews")
+    # Initialize URL manager with direct output path
+    url_manager = URLManager("output/urls", "sabaynews", auto_save=False)
     
     # Start scraping with URL manager
     scrape_all_categories(config, url_manager)

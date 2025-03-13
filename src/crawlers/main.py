@@ -337,33 +337,35 @@ def crawl_url(url: str, category: str, output_dir: str, min_urls_per_source: int
                     driver.quit()
                 
             elif crawler_name == "sabaynews_crawler":
-                # Sabay news crawler
                 logger.info(f"Starting sabaynews crawler for {url}")
                 class ConfigMock:
                     chrome_driver_path = None
                     wait_time = 2
                     max_workers = 1
                 
-                # Special handling for Sabay URLs
-                output_prefix = os.path.join(temp_dir, category)
+                # Create output directory
+                temp_cat_dir = os.path.join(temp_dir, category)
+                os.makedirs(temp_cat_dir, exist_ok=True)
                 
-                # Adjust URL format - Sabay expects specific formats
+                # Adjust URL format for Sabay
                 if "topics" in url:
-                    topic = url.split("/")[-1]
-                    # Remove trailing slash if present
-                    topic = topic.rstrip('/')
+                    topic = url.split("/")[-1].rstrip('/')
                     ajax_url = f"https://news.sabay.com.kh/ajax/topics/{topic}"
                     logger.info(f"Adjusted Sabay URL to: {ajax_url}")
-                    result = crawler_module.scrape_category(ajax_url, output_prefix, ConfigMock())
+                    result = crawler_module.scrape_category(ajax_url, os.path.join(temp_cat_dir, category), ConfigMock())
                 else:
-                    result = crawler_module.scrape_category(url, output_prefix, ConfigMock())
+                    result = crawler_module.scrape_category(url, os.path.join(temp_cat_dir, category), ConfigMock())
                 
-                # Extract URLs from result files
-                if result and "json_file" in result:
+                # Extract URLs directly from result
+                if result and "urls" in result:
+                    collected_urls.update(result["urls"])
+                    logger.info(f"Collected {len(result['urls'])} URLs directly from Sabay crawler")
+                elif result and "json_file" in result and os.path.exists(result["json_file"]):
                     try:
                         with open(result["json_file"], "r", encoding="utf-8") as f:
                             urls_list = json.load(f)
                             collected_urls.update(urls_list)
+                            logger.info(f"Loaded {len(urls_list)} URLs from Sabay result file")
                     except Exception as e:
                         logger.error(f"Error loading Sabay result file: {e}")
                 
