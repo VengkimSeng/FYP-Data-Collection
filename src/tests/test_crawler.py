@@ -121,7 +121,7 @@ def get_available_crawlers():
     crawlers = []
     for file in os.listdir(crawler_dir):
         if file.endswith("_crawler.py"):
-            crawler_name = file.replace("_crawler.py", "")
+            crawler_name = file.replace("_crawler.py", "").lower()
             crawlers.append(crawler_name)
     return sorted(crawlers)
 
@@ -137,13 +137,14 @@ def main():
     crawlers = get_available_crawlers()
     categories = get_available_categories(url_manager)
     
+    # Display options in lowercase for consistency
     print("\nAvailable crawlers:")
     print(", ".join(crawlers))
     print("\nAvailable categories:")
     print(", ".join(categories))
     print()
     
-    # Get crawler name from user
+    # Get and validate crawler name case-insensitively
     crawler_name = input("Enter crawler name to test: ").strip().lower()
     while crawler_name not in crawlers:
         print(f"Invalid crawler. Please choose from: {', '.join(crawlers)}")
