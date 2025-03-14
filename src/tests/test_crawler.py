@@ -79,17 +79,22 @@ def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
         for source_url in sources:
             logger.info(f"Testing {crawler_name} crawler for {category} at {source_url}")
             
-            # Use crawl_category function with url_manager
             if hasattr(crawler_module, 'crawl_category'):
-                # Pass max_pages=2 consistently for all crawlers
-                urls = crawler_module.crawl_category(source_url, category, max_pages=2)
+                # Use appropriate parameters based on crawler
+                if crawler_name == "kohsantepheapdaily":
+                    urls = crawler_module.crawl_category(source_url, category, max_scroll=10)
+                elif crawler_name == "dapnews":
+                    urls = crawler_module.crawl_category(source_url, category, max_pages=2)
+                else:
+                    urls = crawler_module.crawl_category(source_url, category, max_pages=2)
+                    
                 if urls:
                     urls_collected += len(urls)
                     logger.info(f"Found {len(urls)} URLs")
             else:
                 logger.error("Crawler module missing crawl_category function")
                 return False
-            
+                
             if urls_collected >= max_urls:
                 break
                 
