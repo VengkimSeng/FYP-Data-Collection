@@ -6,6 +6,9 @@ import sys
 from urllib.parse import urlparse
 from typing import Set
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.utils.chrome_setup import setup_chrome_driver, setup_chrome_options
@@ -43,51 +46,77 @@ def filter_article_urls(urls, base_domain, category):
     logger.info(f"Filtered {len(filtered)} URLs out of {len(urls)} raw URLs for {category}")
     return filtered
 
-def crawl_category(url: str, category: str, max_pages: int = -1) -> Set[str]:
+def click_load_more(driver):
+    """Click the 'មើលច្រើនជាងនេះ' (Load More) button."""
+    try:
+        # Wait for button with Khmer text
+        button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'មើលច្រើនជាងនេះ')]"))
+        )
+        
+        # Scroll button into view
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", button)
+        time.sleep(1)
+        
+        # Try regular click first
+        try:
+            button.click()
+        except ElementClickInterceptedException:
+            # Fallback to JavaScript click
+            driver.execute_script("arguments[0].click();", button)
+            
+        time.sleep(2)  # Wait for content to load
+        return True
+    except Exception as e:
+        logger.debug(f"Load more button not found or not clickable: {e}")
+        return False
+
+def crawl_category(url: str, category: str, max_clicks: int = -1) -> Set[str]:
     """
-    Crawl a category and return article URLs.
+    Crawl a category using infinite scroll and load more button.
     
     Args:
         url: Starting URL 
         category: Category being crawled
-        max_pages: Maximum pages to crawl (-1 for unlimited)
+        max_clicks: Maximum load more clicks (-1 for unlimited)
     """
     urls = set()
     driver = setup_driver()
-    page = 1
+    clicks = 0
     consecutive_empty = 0
     base_domain = urlparse(url).netloc
     
     try:
-        current_url = url
-        while (max_pages == -1 or page <= max_pages) and consecutive_empty < 3:
-            logger.info(f"Processing page {page}: {current_url}")
+        logger.info(f"Processing {category} at {url}")
+        driver.get(url)
+        time.sleep(3)
+        
+        while (max_clicks == -1 or clicks < max_clicks) and consecutive_empty < 3:
+            # Get current page links
+            links = driver.find_elements(By.TAG_NAME, "a")
+            page_urls = [link.get_attribute("href") for link in links]
+            new_urls = filter_article_urls(page_urls, base_domain, category)
             
-            try:
-                driver.get(current_url)
-                time.sleep(random.uniform(2, 4))
-                
-                # Get all links and filter them
-                links = driver.find_elements(By.TAG_NAME, "a")
-                page_urls = [link.get_attribute("href") for link in links]
-                new_urls = filter_article_urls(page_urls, base_domain, category)
-                
-                if new_urls:
-                    consecutive_empty = 0
-                    urls.update(new_urls)
-                    logger.info(f"Found {len(new_urls)} new URLs (Total: {len(urls)})")
-                else:
-                    consecutive_empty += 1
-                    logger.info(f"No new URLs found (attempt {consecutive_empty}/3)")
-                
-                # Move to next page
-                page += 1
-                current_url = url + f"?b_start:int={(page-1)*15}"
-                
-            except Exception as e:
-                logger.error(f"Error on page {page}: {e}")
+            # Check if we found new URLs
+            old_count = len(urls)
+            urls.update(new_urls)
+            
+            if len(urls) > old_count:
+                consecutive_empty = 0
+                logger.info(f"Found {len(urls) - old_count} new URLs (Total: {len(urls)})")
+            else:
+                consecutive_empty += 1
+                logger.info(f"No new URLs (attempt {consecutive_empty}/3)")
+            
+            # Try to load more content
+            if click_load_more(driver):
+                clicks += 1
+                logger.info(f"Clicked load more button (click {clicks})")
+            else:
                 consecutive_empty += 1
                 
+    except Exception as e:
+        logger.error(f"Error crawling {category}: {e}")
     finally:
         driver.quit()
         

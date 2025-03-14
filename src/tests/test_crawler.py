@@ -92,7 +92,7 @@ def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
                 elif crawler_name == "sabaynews":
                     urls = crawler_module.crawl_category(source_url, category, max_pages=2)
                 elif crawler_name == "rfanews":
-                    urls = crawler_module.crawl_category(source_url, category, max_pages=2)
+                    urls = crawler_module.crawl_category(source_url, category, max_clicks=2)
                 else:
                     urls = crawler_module.crawl_category(source_url, category, max_pages=2)
                     
