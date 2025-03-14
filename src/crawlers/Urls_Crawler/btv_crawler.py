@@ -55,49 +55,74 @@ def extract_urls(html: str, base_url: str) -> Set[str]:
     
     return urls
 
-def crawl_category(base_url: str, category: str, url_manager: URLManager) -> Set[str]:
-    """Crawl a category completely."""
-    all_urls = set()
-    driver = setup_chrome_driver(headless=True, disable_images=True)
+def crawl_category(source_url: str, category: str, url_manager, max_pages: int = 500) -> Set[str]:
+    """
+    Crawl a category from source URL.
     
-    try:
-        # Crawl pages until we have enough URLs or no new ones found
-        page = 1
-        consecutive_empty = 0
-        max_empty_pages = 3
-        
-        while consecutive_empty < max_empty_pages and len(all_urls) < 500:
-            page_url = f"{base_url}?page={page}"
-            logger.info(f"Crawling page {page}: {page_url}")
+    Args:
+        source_url: The base URL for the category
+        category: Category being crawled
+        url_manager: URLManager instance
+        max_pages: Maximum number of pages to crawl (default: 500)
+    
+    Returns:
+        Set of collected URLs
+    """
+    all_urls = set()
+    current_page = 1
+    empty_pages_count = 0  # Track consecutive empty pages
+    
+    while True:
+        if current_page > max_pages:
+            logger.info(f"Reached maximum pages limit ({max_pages})")
+            break
             
-            if html := fetch_page(driver, page_url):
-                new_urls = extract_urls(html, base_url)
-                previous_count = len(all_urls)
-                all_urls.update(new_urls)
+        try:
+            # Use query parameter for pagination instead of path
+            page_url = f"{source_url}{'&' if '?' in source_url else '?'}page={current_page}"
+            logger.info(f"Crawling page {current_page}: {page_url}")
+            
+            # Setup driver and fetch page
+            driver = setup_chrome_driver()
+            try:
+                html = fetch_page(driver, page_url)
+                if not html:
+                    logger.warning(f"Failed to fetch page {current_page}")
+                    empty_pages_count += 1
+                    if empty_pages_count >= 2:  # Stop after 2 consecutive empty pages
+                        logger.info("Multiple empty pages detected, stopping crawl")
+                        break
+                    continue
                 
-                # Track if we found new URLs
-                if len(all_urls) > previous_count:
-                    consecutive_empty = 0
-                    logger.info(f"Found {len(new_urls)} new URLs on page {page}")
+                # Extract URLs from the page
+                page_urls = extract_urls(html, page_url)
+                
+                if not page_urls:
+                    empty_pages_count += 1
+                    if empty_pages_count >= 2:  # Stop after 2 consecutive empty pages
+                        logger.info("No more content found after multiple attempts, stopping crawl")
+                        break
+                    logger.info(f"No URLs found on page {current_page}")
                 else:
-                    consecutive_empty += 1
-                    logger.info(f"No new URLs on page {page}")
-            else:
-                consecutive_empty += 1
+                    empty_pages_count = 0  # Reset counter when we find URLs
+                    all_urls.update(page_urls)
+                    url_manager.add_urls(category, page_urls)
+                    logger.info(f"Found {len(page_urls)} URLs on page {current_page}")
                 
-            page += 1
-            time.sleep(2)  # Polite delay between pages
+            finally:
+                driver.quit()
             
-        # Store all URLs at once
-        if all_urls:
-            added = url_manager.add_urls(category, all_urls)
-            logger.info(f"Stored {added} URLs for category {category}")
+            current_page += 1
+            time.sleep(2)  # Add small delay between pages
             
-    except Exception as e:
-        logger.error(f"Error crawling category {base_url}: {e}")
-    finally:
-        driver.quit()
-        
+        except Exception as e:
+            logger.error(f"Error crawling page {current_page}: {e}")
+            empty_pages_count += 1
+            if empty_pages_count >= 2:
+                logger.info("Multiple errors encountered, stopping crawl")
+                break
+    
+    logger.info(f"Completed crawling after {current_page-1} pages with {len(all_urls)} total URLs")
     return all_urls
 
 def main():

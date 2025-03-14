@@ -48,3 +48,6 @@ chromedriver.exe
 *.temp
 *.tmp
 *.log
+
+/output/
+/output/**
