@@ -77,7 +77,7 @@ def test_single_category(crawler_name: str, category: str, source_url: str) -> S
 
 def load_test_config() -> Dict:
     """Load test configuration from sources.json."""
-    config_path = os.path.join("src", "config", "sources.json")
+    config_path = os.path.join(project_root, "src", "config", "sources.json")
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             return json.load(f)
