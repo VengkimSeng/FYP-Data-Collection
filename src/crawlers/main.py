@@ -25,24 +25,16 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 sys.path.append(project_root)
 sys.path.append(os.path.join(project_root, "src"))
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("master_crawler.log"),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-
-logger = logging.getLogger("master_crawler")
-
 # Local imports (after path setup)
 from utils.chrome_setup import setup_chrome_driver, setup_chrome_options
 from utils.crawler_components import CrawlerComponents
 from crawlers.crawler_utils import check_required_packages, setup_smart_components 
 from crawlers.category_handler import CategoryHandler
 from crawlers.url_processor import save_urls_to_file, filter_article_urls
+from src.utils.log_utils import get_crawler_logger
+
+# Replace old logging setup with new logger
+logger = get_crawler_logger('master_crawler')
 
 # Check for required packages before proceeding
 check_required_packages()

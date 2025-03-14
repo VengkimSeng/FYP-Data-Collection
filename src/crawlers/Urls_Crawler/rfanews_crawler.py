@@ -31,16 +31,10 @@ from src.crawlers.url_manager import URLManager
 warnings.filterwarnings('ignore', category=urllib3.exceptions.NotOpenSSLWarning)
 urllib3.disable_warnings(InsecureRequestWarning)
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("rfanews_crawler.log")
-    ]
-)
-logger = logging.getLogger(__name__)
+from src.utils.log_utils import get_crawler_logger
+
+# Replace old logging setup with new logger
+logger = get_crawler_logger('rfa')
 
 def setup_driver():
     """Set up Selenium WebDriver with options."""
@@ -110,139 +104,141 @@ def filter_article_urls(urls, base_domain, category):
     logger.info(f"Filtered {len(filtered)} URLs out of {len(urls)} raw URLs for {category}")
     return filtered
 
-def scrape_urls(base_url, max_urls=6000, retry_count=3, url_manager=None):
-    """Scrape unique URLs from the given base URL."""
-    progress = load_progress(base_url)
-    current_url = progress.get("current_url", base_url)
-    unique_urls = set(progress.get("unique_urls", []))
-    pages_scraped = progress.get("pages_scraped", 0)
+def scrape_urls(base_url, max_urls=6000, retry_count=3) -> Set[str]:
+    """Scrape URLs from the given base URL."""
+    category = urlparse(base_url).path.split('/')[-2]
+    unique_urls = set()
     base_domain = urlparse(base_url).netloc
-    category = urlparse(base_url).path.split('/')[-2]  # Extract category
-
-    logger.info(f"Starting scraping for {base_url}")
-    logger.info(f"Current progress: {pages_scraped} pages scraped, {len(unique_urls)} URLs collected")
     
     driver = None
-    
     try:
         driver = setup_driver()
-        
-        while len(unique_urls) < max_urls:
-            # Try loading the page with retries
-            page_loaded = False
-            for attempt in range(retry_count):
-                try:
-                    logger.info(f"Loading page: {current_url} (Attempt {attempt+1}/{retry_count})")
-                    driver.get(current_url)
-                    time.sleep(random.uniform(2, 4))
-                    page_loaded = True
-                    break
-                except Exception as e:
-                    logger.error(f"Failed to load page {current_url}: {e}")
-                    if attempt == retry_count - 1:
-                        logger.error("Max retries reached. Moving to next page.")
-                    else:
-                        time.sleep(random.uniform(5, 10))  # Longer wait between retries
-            
-            if not page_loaded:
-                current_url = increment_url(current_url, 15)
-                continue
-            
-            # Get all links on the page
-            try:
-                links = driver.find_elements(By.TAG_NAME, "a")
-                page_urls = [link.get_attribute("href") for link in links]
-                filtered_urls = filter_article_urls(page_urls, base_domain, category)
-                
-                # Add new URLs to our collection
-                previous_count = len(unique_urls)
-                for url in filtered_urls:
-                    if url and url not in unique_urls:
-                        unique_urls.add(url)
-                new_count = len(unique_urls)
-                new_urls = new_count - previous_count
-                
-                logger.info(f"Found {new_urls} new article URLs (Total: {len(unique_urls)})")
-                
-                # Add to URL manager if provided
-                if url_manager and new_urls > 0:
-                    added = url_manager.add_urls(category, filtered_urls)
-                    logger.info(f"Added {added} URLs to URL manager for category '{category}'")
-                
-                # Save progress immediately whenever we find new URLs
-                if new_urls > 0:
-                    logger.info(f"Saving {new_urls} new URLs")
-                    # If using URL manager, it will auto-save, otherwise save manually
-                    if not url_manager:
-                        save_progress(base_url, current_url, unique_urls, pages_scraped)
-                elif pages_scraped % 5 == 0 and not url_manager:
-                    save_progress(base_url, current_url, unique_urls, pages_scraped)
+        progress = load_progress(base_url)
+        current_url = progress.get("current_url", base_url)
+        unique_urls = set(progress.get("unique_urls", []))
+        pages_scraped = progress.get("pages_scraped", 0)
+        base_domain = urlparse(base_url).netloc
+        category = urlparse(base_url).path.split('/')[-2]  # Extract category
 
-                # Increment URL for next page
-                current_url = increment_url(current_url, 15)
-                pages_scraped += 1
+        logger.info(f"Starting scraping for {base_url}")
+        logger.info(f"Current progress: {pages_scraped} pages scraped, {len(unique_urls)} URLs collected")
+        
+        driver = None
+        
+        try:
+            driver = setup_driver()
+            
+            while len(unique_urls) < max_urls:
+                # Try loading the page with retries
+                page_loaded = False
+                for attempt in range(retry_count):
+                    try:
+                        logger.info(f"Loading page: {current_url} (Attempt {attempt+1}/{retry_count})")
+                        driver.get(current_url)
+                        time.sleep(random.uniform(2, 4))
+                        page_loaded = True
+                        break
+                    except Exception as e:
+                        logger.error(f"Failed to load page {current_url}: {e}")
+                        if attempt == retry_count - 1:
+                            logger.error("Max retries reached. Moving to next page.")
+                        else:
+                            time.sleep(random.uniform(5, 10))  # Longer wait between retries
                 
-            except Exception as e:
-                logger.error(f"Error processing page {current_url}: {e}")
-                current_url = increment_url(current_url, 15)
-                pages_scraped += 1
+                if not page_loaded:
+                    current_url = increment_url(current_url, 15)
+                    continue
                 
-    except Exception as e:
-        logger.error(f"Error during scraping: {e}")
+                # Get all links on the page
+                try:
+                    links = driver.find_elements(By.TAG_NAME, "a")
+                    page_urls = [link.get_attribute("href") for link in links]
+                    filtered_urls = filter_article_urls(page_urls, base_domain, category)
+                    
+                    # Add new URLs to our collection
+                    previous_count = len(unique_urls)
+                    for url in filtered_urls:
+                        if url and url not in unique_urls:
+                            unique_urls.add(url)
+                    new_count = len(unique_urls)
+                    new_urls = new_count - previous_count
+                    
+                    logger.info(f"Found {new_urls} new article URLs (Total: {len(unique_urls)})")
+                    
+                    # Add to URL manager if provided
+                    if url_manager and new_urls > 0:
+                        added = url_manager.add_urls(category, filtered_urls)
+                        logger.info(f"Added {added} URLs to URL manager for category '{category}'")
+                    
+                    # Save progress immediately whenever we find new URLs
+                    if new_urls > 0:
+                        logger.info(f"Saving {new_urls} new URLs")
+                        # If using URL manager, it will auto-save, otherwise save manually
+                        if not url_manager:
+                            save_progress(base_url, current_url, unique_urls, pages_scraped)
+                    elif pages_scraped % 5 == 0 and not url_manager:
+                        save_progress(base_url, current_url, unique_urls, pages_scraped)
+
+                    # Increment URL for next page
+                    current_url = increment_url(current_url, 15)
+                    pages_scraped += 1
+                    
+                except Exception as e:
+                    logger.error(f"Error processing page {current_url}: {e}")
+                    current_url = increment_url(current_url, 15)
+                    pages_scraped += 1
+                    
+        except Exception as e:
+            logger.error(f"Error during scraping: {e}")
+        finally:
+            if driver:
+                driver.quit()
+                
+        logger.info(f"Scraping completed for {base_url}")
+        logger.info(f"Total pages scraped: {pages_scraped}")
+        logger.info(f"Total unique URLs collected: {len(unique_urls)}")
+        
+        # Final save of progress if not using URL manager
+        if not url_manager:
+            filename = f"{category}_urls.json"
+            save_progress(base_url, current_url, list(unique_urls), pages_scraped)
+        
+        # Add URLs directly using URL manager
+        if url_manager and filtered_urls:
+            added = url_manager.add_urls(category, filtered_urls)
+            logger.info(f"Added {added} URLs to URL manager for category '{category}'")
+        
+        return filtered_urls
     finally:
         if driver:
             driver.quit()
-            
-    logger.info(f"Scraping completed for {base_url}")
-    logger.info(f"Total pages scraped: {pages_scraped}")
-    logger.info(f"Total unique URLs collected: {len(unique_urls)}")
-    
-    # Final save of progress if not using URL manager
-    if not url_manager:
-        filename = f"{category}_urls.json"
-        save_progress(base_url, current_url, list(unique_urls), pages_scraped)
-    
-    # Add URLs directly using URL manager
-    if url_manager and filtered_urls:
-        added = url_manager.add_urls(category, filtered_urls)
-        logger.info(f"Added {added} URLs to URL manager for category '{category}'")
-    
-    return filtered_urls
 
 def main():
     logger.info(f"Starting RFA News Web Crawler on {platform.system()} {platform.release()}")
-    logger.info(f"Python version: {platform.python_version()}")
     
-    urls_to_scrape = [
-        "https://www.rfa.org/khmer/news/health/story_archive",
-        "https://www.rfa.org/khmer/news/economy/story_archive",
-        "https://www.rfa.org/khmer/news/environment/story_archive",
-        "https://www.rfa.org/khmer/news/politics/story_archive",
-    ]
-
-    # Use standard output directory
-    output_dir = "output/urls" 
-    os.makedirs(output_dir, exist_ok=True)
+    # Initialize URL manager
+    url_manager = URLManager("output/urls", "rfanews")
     
-    # Initialize URL manager with standard output dir
-    url_manager = URLManager(output_dir, "rfanews")
-
-    # Optional: use fewer workers to reduce resource usage
-    max_workers = min(len(urls_to_scrape), 2)  # Limit to 2 concurrent workers
-    
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(scrape_urls, url, 6000, 3, url_manager): url for url in urls_to_scrape}
-
+    # Process categories that have RFA sources
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = []
+        for category in url_manager.category_sources:
+            sources = url_manager.get_sources_for_category(category, "rfa")
+            if sources:
+                for url in sources:
+                    futures.append(executor.submit(scrape_urls, url))
+        
         for future in futures:
-            base_url = futures[future]
-            category = urlparse(base_url).path.split('/')[-2]
             try:
-                scraped_urls = future.result()
-                logger.info(f"Completed scraping for {category}")
+                base_url = future.result()
+                if base_url:
+                    category = urlparse(base_url).path.split('/')[-2]
+                    urls = future.result()
+                    if urls:
+                        url_manager.add_urls(category, urls)
             except Exception as e:
-                logger.error(f"Error scraping {base_url}: {e}")
+                logger.error(f"Error in scraping task: {e}")
     
-    # Save final results
     results = url_manager.save_final_results()
     logger.info(f"Total URLs saved: {sum(results.values())}")
 

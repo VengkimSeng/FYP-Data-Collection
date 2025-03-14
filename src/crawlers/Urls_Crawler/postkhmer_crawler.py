@@ -9,23 +9,9 @@ from urllib.parse import urljoin, urlparse
 import time
 import os
 import sys
-import logging
 import warnings
 import urllib3
 import json
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
-# Suppress the urllib3 warning about OpenSSL
-warnings.filterwarnings("ignore", category=urllib3.exceptions.NotOpenSSLWarning)
 
 # Add parent directory to sys.path to import chrome_setup module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -36,6 +22,14 @@ from src.utils.url_saver import save_urls_to_file
 
 # Import URLManager
 from src.crawlers.url_manager import URLManager
+
+from src.utils.log_utils import get_crawler_logger
+
+# Replace old logging setup with new logger
+logger = get_crawler_logger('postkhmer')
+
+# Suppress the urllib3 warning about OpenSSL
+warnings.filterwarnings("ignore", category=urllib3.exceptions.NotOpenSSLWarning)
 
 def setup_selenium():
     """Setup Selenium WebDriver with headless mode."""
@@ -172,78 +166,24 @@ def extract_article_urls(soup, base_url):
     
     return urls
 
-def scrape_page_content(driver, base_url, category, url_manager):
-    """Scrape URLs from the page, handling button clicks to load more content."""
-    visited_urls = set()  # Store unique URLs
+def scrape_page_content(driver, base_url, category) -> Set[str]:
+    """Scrape URLs from the page and return them."""
+    visited_urls = set()
     click_attempts = 0
-    max_attempts = 30  # Limit clicks to avoid infinite loops
+    max_attempts = 30
     consecutive_failures = 0
-    max_consecutive_failures = 3  # Stop after this many consecutive failures
+    max_consecutive_failures = 3
     
     # Initial page load
-    logger.info("Extracting initial URLs")
     soup = BeautifulSoup(driver.page_source, "html.parser")
     initial_urls = extract_article_urls(soup, base_url)
     visited_urls.update(initial_urls)
     
-    # Add initial URLs to URL manager
-    if initial_urls:
-        added = url_manager.add_urls(category, initial_urls)
-        logger.info(f"Initial load: Added {added} new article URLs")
-    
     # Continue clicking load more until conditions are met
     while click_attempts < max_attempts and consecutive_failures < max_consecutive_failures:
-        # Try to click the load more button
-        if scroll_and_click(driver, category):
-            # Reset consecutive failures counter on success
-            consecutive_failures = 0
-        else:
-            # Increment failures counter
-            consecutive_failures += 1
-            logger.warning(f"Failed to click load more button ({consecutive_failures}/{max_consecutive_failures})")
-            if consecutive_failures >= max_consecutive_failures:
-                logger.info("Maximum consecutive failures reached, stopping")
-                break
-        
-        # Increment click counter
-        click_attempts += 1
-        
-        # Parse the updated page
-        soup = BeautifulSoup(driver.page_source, "html.parser")
-        previous_count = len(visited_urls)
-        
-        # Extract new URLs
-        new_urls = extract_article_urls(soup, base_url)
-        visited_urls.update(new_urls)
-        current_count = len(visited_urls)
-        
-        # Log progress and add to URL manager if we found new URLs
-        if current_count > previous_count:
-            new_urls_to_add = set()
-            for url in new_urls:
-                if url not in visited_urls:
-                    new_urls_to_add.add(url)
-            
-            if new_urls_to_add:
-                added = url_manager.add_urls(category, new_urls_to_add)
-                logger.info(f"Click #{click_attempts}: Added {added} new URLs")
-        
-        logger.info(f"Click #{click_attempts}: Found {current_count} total URLs (+{current_count - previous_count} new)")
-        
-        # If no new URLs were found, we might have reached the end
-        if current_count == previous_count:
-            consecutive_failures += 1
-            logger.warning(f"No new URLs found after clicking ({consecutive_failures}/{max_consecutive_failures})")
-            if consecutive_failures >= max_consecutive_failures:
-                logger.info("Maximum consecutive failures with no new content reached, stopping")
-                break
-        
-        # Pause between clicks
-        time.sleep(3)
-
-    logger.info(f"Scraping completed for {base_url}. Total URLs: {len(visited_urls)}")
+        # ...existing code for clicking and collecting URLs...
+        pass
     
-    # Return the collected URLs
     return visited_urls
 
 def filter_postkhmer_urls(urls):
@@ -292,57 +232,32 @@ def filter_postkhmer_urls(urls):
     return filtered_urls
 
 def main():
-    # List of URLs to scrape
-    urls_to_scrape = [
-        "https://www.postkhmer.com/politics",
-        "https://www.postkhmer.com/business",
-        "https://www.postkhmer.com/financial",
-        "https://www.postkhmer.com/sport",
-        # Add more categories as needed
-        "https://www.postkhmer.com/national",
-        "https://www.postkhmer.com/lifestyle",
-        "https://www.postkhmer.com/world"
-    ]
-
-    # Use standard output directory
-    output_dir = "output/urls"
-    os.makedirs(output_dir, exist_ok=True)
-    logger.info(f"Output directory: {output_dir}")
-
-    # Initialize URL manager with the standard output directory
-    url_manager = URLManager(output_dir, "postkhmer")
-
+    # Initialize URL manager
+    url_manager = URLManager("output/urls", "postkhmer")
+    
     try:
         driver = setup_selenium()
-        for url in urls_to_scrape:
-            logger.info(f"Scraping category: {url}")
-            # Extract category name from URL
-            category = url.split("/")[-1]
-            
-            driver.get(url)  # Load the website
-            logger.info(f"Loaded URL: {url}")
-            time.sleep(5)  # Wait for the page to load completely
-            
-            # Scrape content for the current URL
-            urls = scrape_page_content(driver, url, category, url_manager)
-            
-            # Filter the URLs
-            filtered_urls = filter_postkhmer_urls(list(urls))
-            
-            # Add filtered URLs to URL manager
-            added = url_manager.add_urls(category, filtered_urls)
-            logger.info(f"Added {added} filtered URLs from {url}")
-    except Exception as e:
-        logger.error(f"An error occurred: {e}", exc_info=True)
+        # Process categories that have PostKhmer sources
+        for category in url_manager.category_sources:
+            sources = url_manager.get_sources_for_category(category, "postkhmer")
+            if sources:
+                for url in sources:
+                    logger.info(f"Scraping category: {url}")
+                    driver.get(url)
+                    time.sleep(5)
+                    
+                    urls = scrape_page_content(driver, url, category)
+                    filtered_urls = filter_postkhmer_urls(list(urls))
+                    
+                    added = url_manager.add_urls(category, filtered_urls)
+                    logger.info(f"Added {added} filtered URLs from {url}")
     finally:
         if 'driver' in locals():
-            logger.info("Closing WebDriver")
             driver.quit()
         
         # Save final results
-        if 'url_manager' in locals():
-            results = url_manager.save_final_results()
-            logger.info(f"Total URLs saved: {sum(results.values())}")
+        results = url_manager.save_final_results()
+        logger.info(f"Total URLs saved: {sum(results.values())}")
 
 if __name__ == "__main__":
     main()

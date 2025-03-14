@@ -12,7 +12,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import os
 import json
-import logging
 import time
 import sys
 
@@ -22,9 +21,10 @@ from src.utils.chrome_setup import setup_chrome_driver
 
 # Import URLManager
 from src.crawlers.url_manager import URLManager
+from src.utils.log_utils import get_crawler_logger
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# Replace old logging setup with new logger
+logger = get_crawler_logger('kohsantepheap')
 
 def setup_selenium():
     """Set up Selenium WebDriver."""
@@ -38,23 +38,23 @@ def setup_selenium():
         driver.set_page_load_timeout(30)
         return driver
     except Exception as e:
-        logging.error(f"Error setting up WebDriver: {e}")
+        logger.error(f"Error setting up WebDriver: {e}")
         raise
 
 def fetch_links(driver, url, category, max_scrolls=2000, scroll_pause_time=4):
     """Fetch links iteratively and collect unique links."""
     links = set()
-    logging.info(f"Opening URL: {url}")
+    logger.info(f"Opening URL: {url}")
     
     try:
         driver.get(url)
         
         # Increase initial page load wait time
-        logging.info("Waiting for page to load...")
+        logger.info("Waiting for page to load...")
         time.sleep(10)  # Add initial wait time
         
         WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-        logging.info("Page loaded successfully")
+        logger.info("Page loaded successfully")
 
         # Extra time to ensure JavaScript content is loaded
         time.sleep(5)
@@ -74,12 +74,12 @@ def fetch_links(driver, url, category, max_scrolls=2000, scroll_pause_time=4):
             
             if load_more_location:
                 load_more_button_found = True
-                logging.info("Found load more button container")
+                logger.info("Found load more button container")
                 
                 # Try direct AJAX pagination by manipulating data-paged attribute
                 for page in range(2, 20):  # Try up to 20 pages
                     try:
-                        logging.info(f"Attempting to load page {page} via AJAX")
+                        logger.info(f"Attempting to load page {page} via AJAX")
                         # Update the data-paged attribute to the next page
                         driver.execute_script(f"document.getElementById('category_load_more_location').setAttribute('data-paged', {page});")
                         # Trigger click or custom event to load more content
@@ -96,23 +96,23 @@ def fetch_links(driver, url, category, max_scrolls=2000, scroll_pause_time=4):
                         # Check if new content was loaded by comparing article count
                         soup = BeautifulSoup(driver.page_source, "html.parser")
                         articles_count = len(soup.select("article.white-box, div.content, article[class*='col-']"))
-                        logging.info(f"Found {articles_count} articles after attempting page {page}")
+                        logger.info(f"Found {articles_count} articles after attempting page {page}")
                         
                         # Extract links from the page
                         extract_links_from_page(soup, url, links)
                         
                         if articles_count < page * 10:  # Assuming each page should have at least 10 articles
-                            logging.info(f"No more pages to load after page {page}")
+                            logger.info(f"No more pages to load after page {page}")
                             break
                     except Exception as e:
-                        logging.error(f"Error loading page {page}: {e}")
+                        logger.error(f"Error loading page {page}: {e}")
                         break
         except Exception as e:
-            logging.info(f"No load more button container found: {e}")
+            logger.info(f"No load more button container found: {e}")
         
         # If AJAX pagination didn't work, use the scrolling approach
         if not load_more_button_found or len(links) < 100:  # If we didn't find many links, try scrolling
-            logging.info("Starting scroll-based crawling")
+            logger.info("Starting scroll-based crawling")
             for scroll_count in range(max_scrolls):
                 # Scroll to the bottom of the page
                 driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
@@ -124,11 +124,11 @@ def fetch_links(driver, url, category, max_scrolls=2000, scroll_pause_time=4):
                         "#category_load_more_location, .more-link, button.load-more, .loader-bouncing")
                     for load_more in load_more_elements:
                         if load_more.is_displayed():
-                            logging.info("Clicking load more button")
+                            logger.info("Clicking load more button")
                             driver.execute_script("arguments[0].click();", load_more)
                             time.sleep(5)  # Wait for content to load after clicking
                 except Exception as e:
-                    logging.debug(f"No load more button to click: {str(e)}")
+                    logger.debug(f"No load more button to click: {str(e)}")
                 
                 # Randomly scroll up and down to trigger lazy loading
                 if scroll_count % 3 == 0:
@@ -143,7 +143,7 @@ def fetch_links(driver, url, category, max_scrolls=2000, scroll_pause_time=4):
                 # Find article containers with broader selectors
                 article_containers = soup.select("article, div.content, .white-box, .big-image, .grid-one-four")
                 
-                logging.info(f"Found {len(article_containers)} article containers on scroll {scroll_count + 1}")
+                logger.info(f"Found {len(article_containers)} article containers on scroll {scroll_count + 1}")
                 
                 new_links_found = len(links)
                 
@@ -151,18 +151,18 @@ def fetch_links(driver, url, category, max_scrolls=2000, scroll_pause_time=4):
                 extract_links_from_page(soup, url, links)
                 
                 new_links_found = len(links) - new_links_found
-                logging.info(f"Found {new_links_found} new links on scroll {scroll_count + 1}. Total: {len(links)}")
+                logger.info(f"Found {new_links_found} new links on scroll {scroll_count + 1}. Total: {len(links)}")
 
                 # Check if no more content is being loaded or no new links found
                 new_height = driver.execute_script("return document.body.scrollHeight")
                 
                 if new_height == last_height and len(links) == links_count_prev:
                     scroll_retry_count += 1
-                    logging.info(f"No new content detected. Retrying... ({scroll_retry_count}/5)")
+                    logger.info(f"No new content detected. Retrying... ({scroll_retry_count}/5)")
                     
                     # Try more aggressive scrolling when stuck
                     if scroll_retry_count > 2:
-                        logging.info("Using more aggressive scrolling to trigger content load")
+                        logger.info("Using more aggressive scrolling to trigger content load")
                         # Scroll to various positions to trigger lazy loading
                         for scroll_position in [0.7, 0.5, 0.3, 0.1, 0.9]:
                             driver.execute_script(f"window.scrollTo(0, {last_height * scroll_position});")
@@ -173,17 +173,17 @@ def fetch_links(driver, url, category, max_scrolls=2000, scroll_pause_time=4):
                         time.sleep(2)
                     
                     if scroll_retry_count >= 5:
-                        logging.info(f"No more content to load after {scroll_count + 1} scrolls.")
+                        logger.info(f"No more content to load after {scroll_count + 1} scrolls.")
                         break
                 else:
                     if new_height != last_height:
-                        logging.info(f"Page height increased from {last_height} to {new_height}")
+                        logger.info(f"Page height increased from {last_height} to {new_height}")
                         scroll_retry_count = 0  # Reset retry count if page height changes
                     elif len(links) != links_count_prev:
-                        logging.info(f"New links found without height change")
+                        logger.info(f"New links found without height change")
                         scroll_retry_count = 0  # Reset retry count if new links found
                     else:
-                        logging.debug("No changes detected but not incrementing retry count")
+                        logger.debug("No changes detected but not incrementing retry count")
 
                 last_height = new_height
                 links_count_prev = len(links)
@@ -193,9 +193,9 @@ def fetch_links(driver, url, category, max_scrolls=2000, scroll_pause_time=4):
         extract_links_from_page(soup, url, links)
         
     except Exception as e:
-        logging.error(f"Error while fetching links from {url}: {e}")
+        logger.error(f"Error while fetching links from {url}: {e}")
     
-    logging.info(f"Completed crawling {url}. Found {len(links)} unique article links.")
+    logger.info(f"Completed crawling {url}. Found {len(links)} unique article links.")
     return links
 
 # Rest of the helper functions remain unchanged
@@ -239,15 +239,15 @@ def extract_links_from_page(soup, base_url, links_set):
 def crawl_url(url: str, shared_links: set, lock: threading.Lock, category: str) -> None:
     driver = setup_selenium()
     try:
-        logging.info(f"Crawling URL: {url}")
+        logger.info(f"Crawling URL: {url}")
         links = fetch_links(driver, url, category)
         
         # Add links to shared set with thread safety
         with lock:
             shared_links.update(links)
-        logging.info(f"Added {len(links)} new links to shared set from URL: {url}")
+        logger.info(f"Added {len(links)} new links to shared set from URL: {url}")
     except Exception as e:
-        logging.error(f"Error crawling URL {url}: {e}")
+        logger.error(f"Error crawling URL {url}: {e}")
     finally:
         driver.quit()
 
@@ -270,45 +270,41 @@ def crawl_kohsantepheap(output_dir="output/urls", urls_per_category=500):
             driver.quit()
             
             added = url_manager.add_urls(category, links)
-            logging.info(f"Added {added} links for category {category}")
+            logger.info(f"Added {added} links for category {category}")
         except Exception as e:
-            logging.error(f"Error crawling category {category}: {e}")
+            logger.error(f"Error crawling category {category}: {e}")
     
     # Save final results at the end
     results = url_manager.save_final_results()
-    logging.info(f"Total URLs saved: {sum(results.values())}")
+    logger.info(f"Total URLs saved: {sum(results.values())}")
     return results
 
 def main():
-    """Main function to crawl URLs."""
-    # Use standard output directory
-    output_dir = "output/urls"
-    os.makedirs(output_dir, exist_ok=True)
+    # Initialize URL manager
+    url_manager = URLManager("output/urls", "kohsantepheap")
     
-    # Initialize URL manager with standard output directory
-    url_manager = URLManager(output_dir, "kohsantepheapdaily")
-    
-    # Process each category
-    for category, url in CATEGORIES.items():
-        try:
-            driver = setup_selenium()
-            links = fetch_links(driver, url, category)
-            driver.quit()
-            
-            # Add URLs to URL manager
-            if links:
-                added = url_manager.add_urls(category, links)
-                logger.info(f"Added {added} new links for category {category}")
-        except Exception as e:
-            logger.error(f"Error processing category {category}: {e}")
-    
-    # Save final results
-    results = url_manager.save_final_results()
-    logger.info(f"Finished crawling. Total links saved: {sum(results.values())}.")
+    try:
+        for category in url_manager.category_sources:
+            sources = url_manager.get_sources_for_category(category, "kohsantepheap")
+            if sources:
+                try:
+                    driver = setup_selenium()
+                    for url in sources:
+                        links = fetch_links(driver, url, category)
+                        driver.quit()
+                        
+                        added = url_manager.add_urls(category, links)
+                        logger.info(f"Added {added} new links for category {category}")
+                except Exception as e:
+                    logger.error(f"Error crawling category {category}: {e}")
+    finally:
+        # Save final results
+        results = url_manager.save_final_results()
+        logger.info(f"Total URLs saved: {sum(results.values())}")
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        logging.info("Script interrupted by user. Exiting...")
+        logger.info("Script interrupted by user. Exiting...")
 

@@ -34,6 +34,9 @@ from src.utils.url_saver import save_urls_to_file, save_urls_to_multiple_formats
 # Import URLManager
 from src.crawlers.url_manager import URLManager
 
+# Import get_crawler_logger
+from src.utils.log_utils import get_crawler_logger
+
 # ==== CONFIGURATION ====
 @dataclass
 class CrawlerConfig:
@@ -68,8 +71,8 @@ def setup_logging() -> logging.Logger:
     
     return logger
 
-# Initialize logger
-logger = setup_logging()
+# Initialize logger with color coding
+logger = get_crawler_logger('sabaynews')
 
 # ==== SELENIUM SETUP ====
 def setup_selenium(config: CrawlerConfig) -> webdriver.Chrome:
@@ -84,6 +87,7 @@ def setup_selenium(config: CrawlerConfig) -> webdriver.Chrome:
     """
     # Use the chrome_setup module to set up the WebDriver
     try:
+        logger.info("Setting up Chrome WebDriver")
         # Create chrome options with our preferred settings
         chrome_options = setup_chrome_options(
             headless=True,
@@ -98,7 +102,7 @@ def setup_selenium(config: CrawlerConfig) -> webdriver.Chrome:
             options=chrome_options,
             use_webdriver_manager=True
         )
-        
+        logger.debug("WebDriver setup complete")
         return driver
     except Exception as e:
         logger.error(f"Failed to set up Chrome driver: {e}")
@@ -180,39 +184,34 @@ def scrape_category(base_url: str, output_prefix: str, config: CrawlerConfig) ->
     finally:
         driver.quit()
     
-    return all_urls
+    return all_urls  # Just return the collected URLs
 
 # ==== MAIN FUNCTIONS ====
-def scrape_all_categories(config: CrawlerConfig, url_manager: URLManager = None) -> None:
-    if url_manager is None:
-        url_manager = URLManager("output/urls", "sabaynews")
+def scrape_all_categories(config: CrawlerConfig) -> None:
+    """Scrape all categories and collect URLs."""
+    url_manager = URLManager("output/urls", "sabay")
     
-    # Prepare tasks for concurrent execution
-    tasks = []
-    for category in config.categories:
-        base_url = f"https://news.sabay.com.kh/ajax/topics/{category}"
-        output_prefix = os.path.join(url_manager.output_dir, category)
-        tasks.append((base_url, output_prefix, category))
-    
-    # Execute tasks concurrently
-    with ThreadPoolExecutor(max_workers=min(config.max_workers, len(tasks))) as executor:
-        futures = {
-            executor.submit(scrape_category, base_url, output_prefix, config): category
-            for base_url, output_prefix, category in tasks
-        }
+    with ThreadPoolExecutor(max_workers=config.max_workers) as executor:
+        futures = []
+        for category in url_manager.category_sources:
+            sources = url_manager.get_sources_for_category(category, "sabay")
+            if sources:
+                for base_url in sources:
+                    output_prefix = os.path.join(url_manager.output_dir, category)
+                    futures.append(
+                        executor.submit(scrape_category, base_url, output_prefix, config)
+                    )
         
-        # Process results as they complete
         for future in futures:
-            category = futures[future]
             try:
-                result = future.result()
-                if url_manager and result:
-                    added = url_manager.add_urls(category, result)
-                    logger.info(f"Added and saved {added} URLs for category '{category}'")
+                urls = future.result()
+                if urls:
+                    category = os.path.basename(urls.get('output_prefix', '')).split('_')[0]
+                    url_manager.add_urls(category, urls.get('urls', []))
             except Exception as e:
-                logger.error(f"Error scraping category '{category}': {str(e)}")
+                logger.error(f"Error in scraping task: {e}")
     
-    logger.info("All categories processed")
+    url_manager.save_final_results()
 
 def parse_arguments():
     """Parse command line arguments."""
