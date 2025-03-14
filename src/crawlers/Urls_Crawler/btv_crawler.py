@@ -55,14 +55,14 @@ def extract_urls(html: str, base_url: str) -> Set[str]:
     
     return urls
 
-def crawl_category(source_url: str, category: str, url_manager, max_pages: int = 500) -> Set[str]:
+def crawl_category(source_url: str, category: str, url_manager=None, max_pages: int = 500) -> Set[str]:
     """
     Crawl a category from source URL.
     
     Args:
         source_url: The base URL for the category
         category: Category being crawled
-        url_manager: URLManager instance
+        url_manager: Optional URLManager instance
         max_pages: Maximum number of pages to crawl (default: 500)
     
     Returns:
@@ -72,11 +72,7 @@ def crawl_category(source_url: str, category: str, url_manager, max_pages: int =
     current_page = 1
     empty_pages_count = 0  # Track consecutive empty pages
     
-    while True:
-        if current_page > max_pages:
-            logger.info(f"Reached maximum pages limit ({max_pages})")
-            break
-            
+    while current_page <= max_pages:
         try:
             # Use query parameter for pagination instead of path
             page_url = f"{source_url}{'&' if '?' in source_url else '?'}page={current_page}"
@@ -97,17 +93,18 @@ def crawl_category(source_url: str, category: str, url_manager, max_pages: int =
                 # Extract URLs from the page
                 page_urls = extract_urls(html, page_url)
                 
-                if not page_urls:
+                if page_urls:
+                    all_urls.update(page_urls)
+                    if url_manager:
+                        url_manager.add_urls(category, page_urls)
+                    logger.info(f"Found {len(page_urls)} URLs on page {current_page}")
+                    empty_pages_count = 0
+                else:
                     empty_pages_count += 1
                     if empty_pages_count >= 2:  # Stop after 2 consecutive empty pages
                         logger.info("No more content found after multiple attempts, stopping crawl")
                         break
                     logger.info(f"No URLs found on page {current_page}")
-                else:
-                    empty_pages_count = 0  # Reset counter when we find URLs
-                    all_urls.update(page_urls)
-                    url_manager.add_urls(category, page_urls)
-                    logger.info(f"Found {len(page_urls)} URLs on page {current_page}")
                 
             finally:
                 driver.quit()

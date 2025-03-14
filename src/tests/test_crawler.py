@@ -57,8 +57,10 @@ def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
     """Test a specific crawler for a category."""
     logger.info(f"Testing {crawler_name} crawler for {category}")
     
-    # Initialize URL manager for testing
-    url_manager = URLManager("output/test_urls", crawler_name)
+    # Initialize URL manager for testing with absolute path
+    output_dir = os.path.abspath("output/test_urls")
+    url_manager = URLManager(output_dir, crawler_name)
+    logger.info(f"URLs will be saved to: {os.path.join(output_dir, f'{category}.json')}")
     
     # Get source URLs for this crawler/category
     sources = url_manager.get_sources_for_category(category, crawler_name)

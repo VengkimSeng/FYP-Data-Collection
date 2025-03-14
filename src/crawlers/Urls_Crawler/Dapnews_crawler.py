@@ -43,45 +43,50 @@ def extract_urls(html: str, base_url: str) -> set:
             urls.add(url)
     return urls
 
-def crawl_category(start_url: str, category: str, max_pages: int = 500) -> set:
-    """Crawl a category and return all article URLs.
+def crawl_category(source_url: str, category: str, url_manager=None, max_pages: int = 500) -> set:
+    """
+    Crawl a category and return all article URLs.
     
     Args:
-        start_url: URL to start crawling from
+        source_url: The base URL for the category
         category: Category being crawled
-        max_pages: Maximum number of pages to crawl (default: 500)
+        url_manager: Optional URLManager instance
+        max_pages: Maximum number of pages to crawl
     
     Returns:
-        Set of collected article URLs
+        Set of collected URLs
     """
     urls = set()
     driver = setup_chrome_driver()
-    page = 1
     
     try:
-        while True:
-            if max_pages and page > max_pages:
-                logger.info(f"Reached maximum page limit ({max_pages})")
-                break
-                
-            url = f"{start_url}page/{page}/" if page > 1 else start_url
+        page = 1
+        while page <= max_pages:
+            url = f"{source_url}page/{page}/" if page > 1 else source_url
             logger.info(f"Crawling {category} page {page}")
             
-            html = fetch_page(driver, url)
-            new_urls = extract_urls(html, start_url)
+            driver.get(url)
+            time.sleep(2)  # Wait for page to load
+            
+            # Extract URLs from current page
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            new_urls = extract_urls(driver.page_source, source_url)
             
             if not new_urls:
                 break
                 
             urls.update(new_urls)
-            page += 1
+            if url_manager:
+                url_manager.add_urls(category, new_urls)
+            logger.info(f"Found {len(new_urls)} URLs on page {page}")
             
+            page += 1
             if len(urls) >= 500:
                 break
                 
     finally:
         driver.quit()
-        
+    
     return urls
 
 def main():
@@ -94,9 +99,8 @@ def main():
             if sources:
                 for url in sources:
                     logger.info(f"Crawling category {category} from {url}")
-                    urls = crawl_category(url, category)
-                    added = url_manager.add_urls(category, urls)
-                    logger.info(f"Added {added} URLs for category {category}")
+                    urls = crawl_category(url, category, url_manager)
+                    logger.info(f"Added {len(urls)} URLs for category {category}")
     finally:
         # Save final results
         results = url_manager.save_final_results()
