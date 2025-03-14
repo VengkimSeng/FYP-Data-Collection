@@ -26,11 +26,24 @@ from src.crawlers.url_manager import URLManager
 
 from src.utils.log_utils import get_crawler_logger
 
-# Replace old logging setup with new logger
-logger = get_crawler_logger('postkhmer')
+# Remove existing urllib3 warning handlers and replace with comprehensive handling
+warnings.simplefilter('ignore', urllib3.exceptions.InsecureRequestWarning)
+warnings.simplefilter('ignore', UserWarning)
+# Attempt multiple warning suppression strategies
+try:
+    # Try urllib3 specific warnings
+    warnings.simplefilter('ignore', urllib3.exceptions.NotOpenSSLWarning)
+except (AttributeError, ImportError):
+    pass
 
-# Suppress the urllib3 warning about OpenSSL
-warnings.filterwarnings("ignore", category=urllib3.exceptions.NotOpenSSLWarning)
+try:
+    # Try to suppress all urllib3 warnings
+    urllib3.disable_warnings()
+except:
+    pass
+
+# Setup logger
+logger = get_crawler_logger('postkhmer')
 
 def setup_selenium():
     """Setup Selenium WebDriver with headless mode."""
