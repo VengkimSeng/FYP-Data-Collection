@@ -84,7 +84,14 @@ def test_single_category(crawler_name: str, category: str, source_url: str) -> S
                 # If max_pages is not supported, fall back to standard call
                 logger.warning(f"max_pages not supported by {crawler_name} crawler, using default implementation")
                 urls = crawler_module.crawl_category(source_url, category, url_manager)
+<<<<<<< HEAD
                 
+=======
+            except TypeError as e:
+                # If max_pages is not supported, fall back to standard call
+                logger.warning(f"max_pages not supported by {crawler_name} crawler, using default implementation")
+                urls = crawler_module.crawl_category(source_url, category, url_manager)
+>>>>>>> d8c146afee34cddaffe22415ad32a2f9f564623d
             logger.info(f"Found {len(urls)} URLs")
             return urls
         else:

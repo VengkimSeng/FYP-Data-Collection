@@ -50,4 +50,8 @@ chromedriver.exe
 *.log
 
 /output/
+<<<<<<< HEAD
 /output/**
+=======
+/output/**
+>>>>>>> d8c146afee34cddaffe22415ad32a2f9f564623d
