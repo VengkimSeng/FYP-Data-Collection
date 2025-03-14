@@ -82,11 +82,7 @@ def crawl_category(source_url: str, category: str, url_manager, max_pages: int =
             page_url = f"{source_url}{'&' if '?' in source_url else '?'}page={current_page}"
             logger.info(f"Crawling page {current_page}: {page_url}")
             
-<<<<<<< HEAD:src/crawlers/Urls_Crawler/btv_crawler.py
             # Setup driver and fetch page
-=======
-             # Setup driver and fetch page
->>>>>>> d8c146afee34cddaffe22415ad32a2f9f564623d:src/crawlers/Urls_Crawler/BTV_crawler.py
             driver = setup_chrome_driver()
             try:
                 html = fetch_page(driver, page_url)
