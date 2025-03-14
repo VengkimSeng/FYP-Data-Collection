@@ -3,7 +3,7 @@ import sys
 import time# idaijasd
 import json
 import importlib.util
-from typing import Dict, Set
+from typing import Dict, Set, List
 
 # Add project root to path for imports
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -115,14 +115,47 @@ def load_test_config() -> Dict:
         logger.error(f"Error loading test config: {e}")
         return {}
 
+def get_available_crawlers():
+    """Get list of available crawler modules."""
+    crawler_dir = os.path.join(project_root, "src", "crawlers", "Urls_Crawler")
+    crawlers = []
+    for file in os.listdir(crawler_dir):
+        if file.endswith("_crawler.py"):
+            crawler_name = file.replace("_crawler.py", "")
+            crawlers.append(crawler_name)
+    return sorted(crawlers)
+
+def get_available_categories(url_manager: URLManager) -> List[str]:
+    """Get list of available categories."""
+    return sorted(url_manager.category_sources.keys())
+
 def main():
     """Main test function."""
+    url_manager = URLManager("output/test_urls", "test")
+    
+    # Show available options
+    crawlers = get_available_crawlers()
+    categories = get_available_categories(url_manager)
+    
+    print("\nAvailable crawlers:")
+    print(", ".join(crawlers))
+    print("\nAvailable categories:")
+    print(", ".join(categories))
+    print()
+    
     # Get crawler name from user
-    crawler_name = input("Enter crawler name to test (e.g., btv, sabay, postkhmer): ").strip()
-    category = input("Enter category to test: ").strip()
+    crawler_name = input("Enter crawler name to test: ").strip().lower()
+    while crawler_name not in crawlers:
+        print(f"Invalid crawler. Please choose from: {', '.join(crawlers)}")
+        crawler_name = input("Enter crawler name to test: ").strip().lower()
+    
+    # Get category from user
+    category = input("Enter category to test: ").strip().lower()
+    while category not in categories:
+        print(f"Invalid category. Please choose from: {', '.join(categories)}")
+        category = input("Enter category to test: ").strip().lower()
     
     logger.info(f"Starting test crawl for {crawler_name} - {category}")
-    
     success = test_crawler(crawler_name, category)
     sys.exit(0 if success else 1)
 
