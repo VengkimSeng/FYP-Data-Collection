@@ -83,12 +83,14 @@ def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
             
             if hasattr(crawler_module, 'crawl_category'):
                 # Use appropriate parameters based on crawler
-                if crawler_name == "kohsantepheapdaily":
+                if crawler_name == "kohsantepheap":
                     urls = crawler_module.crawl_category(source_url, category, max_scroll=10)
                 elif crawler_name == "dapnews":
                     urls = crawler_module.crawl_category(source_url, category, max_pages=2)
                 elif crawler_name == "postkhmer":
-                    urls = crawler_module.crawl_category(source_url, category, max_click=5)
+                    urls = crawler_module.crawl_category(source_url, category, max_click=2)
+                elif crawler_name == "sabaynews":
+                    urls = crawler_module.crawl_category(source_url, category, max_pages=2)
                 else:
                     urls = crawler_module.crawl_category(source_url, category, max_pages=2)
                     

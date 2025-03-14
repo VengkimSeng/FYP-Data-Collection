@@ -13,7 +13,6 @@ import logging
 import sys
 import platform
 from urllib.parse import urljoin
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Set, List, Dict, Optional
 import argparse
@@ -44,11 +43,9 @@ class CrawlerConfig:
     chrome_driver_path: Optional[str] = None
     wait_time: int = 2
     max_workers: int = 3
-    output_dir: str = "sabaynews"
     categories: List[str] = None
     
     def __post_init__(self):
-        """Set default values if none provided."""
         if self.categories is None:
             self.categories = ["entertainment", "technology", "sport"]
 
@@ -132,86 +129,80 @@ def scrape_urls(driver: webdriver.Chrome) -> Set[str]:
             
     return urls
 
-def scrape_category(base_url: str, output_prefix: str, config: CrawlerConfig) -> Set[str]:
+def crawl_category(url: str, category: str, max_pages: int = -1) -> Set[str]:
     """
-    Scrape URLs from a specific category by navigating through pages.
+    Crawl a category page using AJAX pagination.
     
     Args:
-        base_url: The base URL for the category.
-        output_prefix: Prefix for output files.
-        config: The crawler configuration.
-        
+        url: Base URL for the category
+        category: Category name
+        max_pages: Maximum number of pages to crawl (-1 for unlimited pagination)
+    
     Returns:
-        Set of collected article URLs.
+        Set of article URLs
     """
-    driver = setup_selenium(config)
-    page_number = 1
-    all_urls = set()
+    driver = setup_selenium(CrawlerConfig())
+    urls = set()
+    page = 1
+    consecutive_empty = 0
     
     try:
-        while True:
-            # Construct the URL for the current page
-            current_url = f"{base_url}/{page_number}"
-            logger.info(f"Processing {current_url}")
+        # Get initial page content
+        logger.info(f"Crawling initial page at {url}")
+        driver.get(url)
+        time.sleep(2)
+        urls.update(scrape_urls(driver))
+        
+        # Then use AJAX URLs for pagination
+        while (max_pages == -1 or page <= max_pages) and consecutive_empty < 3:
+            # Construct AJAX URL for pagination
+            ajax_url = f"https://news.sabay.com.kh/ajax/topics/{category}/{page + 1}"
+            logger.info(f"Crawling page {page + 1} at {ajax_url}")
             
             try:
-                driver.get(current_url)
-                time.sleep(config.wait_time)  # Wait for the page to load
+                driver.get(ajax_url)
+                time.sleep(2)
                 
-                # Scrape URLs from the current view
-                current_urls = scrape_urls(driver)
+                page_urls = scrape_urls(driver)
                 
-                if not current_urls:
-                    logger.info(f"No more content found at page {page_number}. Stopping.")
-                    break
+                if not page_urls:
+                    consecutive_empty += 1
+                    logger.info(f"Empty page (attempt {consecutive_empty}/3)")
+                else:
+                    consecutive_empty = 0
+                    urls.update(page_urls)
+                    logger.info(f"Found {len(page_urls)} URLs on page {page + 1} (Total: {len(urls)})")
                 
-                # Add current URLs to the collection
-                previous_count = len(all_urls)
-                all_urls.update(current_urls)
-                new_count = len(all_urls)
-                
-                # If we found new URLs, log them
-                if new_count > previous_count:
-                    logger.info(f"Found {new_count - previous_count} new URLs on page {page_number}")
-                
-                logger.info(f"Scraped page {page_number} with {len(current_urls)} URLs.")
-                page_number += 1
+                page += 1
                 
             except Exception as e:
-                logger.error(f"Error scraping {current_url}: {str(e)}")
-                break
+                logger.error(f"Error on page {page + 1}: {e}")
+                consecutive_empty += 1
                 
     finally:
         driver.quit()
-    
-    return all_urls  # Just return the collected URLs
+        
+    return urls
 
 # ==== MAIN FUNCTIONS ====
 def scrape_all_categories(config: CrawlerConfig) -> None:
-    """Scrape all categories and collect URLs."""
+    """Scrape all categories using URL manager."""
     url_manager = URLManager("output/urls", "sabay")
     
-    with ThreadPoolExecutor(max_workers=config.max_workers) as executor:
-        futures = []
+    try:
         for category in url_manager.category_sources:
             sources = url_manager.get_sources_for_category(category, "sabay")
             if sources:
                 for base_url in sources:
-                    output_prefix = os.path.join(url_manager.output_dir, category)
-                    futures.append(
-                        executor.submit(scrape_category, base_url, output_prefix, config)
-                    )
-        
-        for future in futures:
-            try:
-                urls = future.result()
-                if urls:
-                    category = os.path.basename(urls.get('output_prefix', '')).split('_')[0]
-                    url_manager.add_urls(category, urls.get('urls', []))
-            except Exception as e:
-                logger.error(f"Error in scraping task: {e}")
-    
-    url_manager.save_final_results()
+                    logger.info(f"Crawling category {category} from {base_url}")
+                    urls = crawl_category(base_url, category)
+                    if urls:
+                        added = url_manager.add_urls(category, urls)
+                        logger.info(f"Added {added} URLs for category {category}")
+    finally:
+        # Save final results
+        results = url_manager.save_final_results()
+        logger.info(f"Total URLs saved: {sum(results.values())}")
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -222,8 +213,6 @@ def parse_arguments():
                       help="Wait time between page loads (default: 2)")
     parser.add_argument("--workers", dest="max_workers", type=int, default=3,
                       help="Maximum number of worker threads (default: 3)")
-    parser.add_argument("--output", dest="output_dir", default="sabaynews",
-                      help="Output directory for scraped URLs (default: sabaynews)")
     parser.add_argument("--categories", nargs="+", default=None,
                       help="Categories to scrape, e.g., 'entertainment technology sport'")
     return parser.parse_args()
@@ -231,31 +220,20 @@ def parse_arguments():
 def main() -> None:
     """Main entry point for the crawler."""
     logger.info("Starting SabayNews crawler")
-    
-    # Parse command line arguments
     args = parse_arguments()
     
-    # Create configuration from arguments
     config = CrawlerConfig(
         chrome_driver_path=args.chrome_driver_path,
         wait_time=args.wait_time,
         max_workers=args.max_workers,
-        output_dir=args.output_dir,
         categories=args.categories
     )
     
-    # Log configuration details
     logger.info(f"Operating System: {platform.system()} {platform.release()}")
     logger.info(f"Python Version: {platform.python_version()}")
-    logger.info(f"ChromeDriver Path: {config.chrome_driver_path}")
     logger.info(f"Categories to scrape: {config.categories}")
     
-    # Initialize URL manager with direct output path
-    url_manager = URLManager("output/urls", "sabaynews", auto_save=False)
-    
-    # Start scraping with URL manager
-    scrape_all_categories(config, url_manager)
-    
+    scrape_all_categories(config)
     logger.info("Crawler finished execution")
 
 if __name__ == "__main__":
