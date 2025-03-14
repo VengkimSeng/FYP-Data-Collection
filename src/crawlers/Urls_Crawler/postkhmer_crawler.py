@@ -12,6 +12,7 @@ import sys
 import warnings
 import urllib3
 import json
+from typing import Set
 
 # Add parent directory to sys.path to import chrome_setup module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -166,11 +167,18 @@ def extract_article_urls(soup, base_url):
     
     return urls
 
-def scrape_page_content(driver, base_url, category) -> Set[str]:
-    """Scrape URLs from the page and return them."""
+def scrape_page_content(driver, base_url, category, max_click=-1) -> Set[str]:
+    """
+    Scrape URLs from the page and return them.
+    
+    Args:
+        driver: WebDriver instance
+        base_url: Base URL of the page
+        category: Category being scraped
+        max_click: Maximum number of load more clicks (-1 for unlimited clicking)
+    """
     visited_urls = set()
     click_attempts = 0
-    max_attempts = 30
     consecutive_failures = 0
     max_consecutive_failures = 3
     
@@ -179,12 +187,55 @@ def scrape_page_content(driver, base_url, category) -> Set[str]:
     initial_urls = extract_article_urls(soup, base_url)
     visited_urls.update(initial_urls)
     
-    # Continue clicking load more until conditions are met
-    while click_attempts < max_attempts and consecutive_failures < max_consecutive_failures:
-        # ...existing code for clicking and collecting URLs...
-        pass
+    while (max_click == -1 or click_attempts < max_click) and consecutive_failures < max_consecutive_failures:
+        if scroll_and_click(driver, category):
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            new_urls = extract_article_urls(soup, base_url)
+            
+            # Check if we found new URLs
+            old_count = len(visited_urls)
+            visited_urls.update(new_urls)
+            if len(visited_urls) > old_count:
+                consecutive_failures = 0
+                logger.info(f"Found {len(visited_urls) - old_count} new URLs")
+            else:
+                consecutive_failures += 1
+                logger.warning(f"No new URLs found (attempt {consecutive_failures}/{max_consecutive_failures})")
+        else:
+            consecutive_failures += 1
+            logger.warning(f"Click failed (attempt {consecutive_failures}/{max_consecutive_failures})")
+            
+        click_attempts += 1
+        logger.info(f"Click attempt {click_attempts}/{max_click}")
     
     return visited_urls
+
+def crawl_category(url: str, category: str, max_click: int = -1) -> set:
+    """
+    Crawl a single category page.
+    
+    Args:
+        url: URL to crawl
+        category: Category name
+        max_click: Maximum number of load more clicks (-1 for unlimited clicking)
+    
+    Returns:
+        Set of collected URLs
+    """
+    driver = setup_selenium()
+    try:
+        logger.info(f"Crawling {category}: {url}")
+        driver.get(url)
+        time.sleep(5)  # Initial load
+        
+        urls = scrape_page_content(driver, url, category, max_click=max_click)
+        return filter_postkhmer_urls(list(urls))
+        
+    except Exception as e:
+        logger.error(f"Error crawling {category}: {e}")
+        return set()
+    finally:
+        driver.quit()
 
 def filter_postkhmer_urls(urls):
     """Filter PostKhmer URLs based on specific criteria."""
