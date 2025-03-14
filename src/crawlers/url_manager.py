@@ -12,13 +12,14 @@ class URLManager:
         self.category_urls: Dict[str, Set[str]] = {}
         os.makedirs(output_dir, exist_ok=True)
         
-        # Load category sources from config file
-        config_path = os.path.join(os.path.dirname(__file__), "../config/sources.json")
+        # Load categories from project root config file
+        config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
+                                 "config", "categories.json")
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 self.category_sources = json.load(f)
         except Exception as e:
-            logger.error(f"Error loading sources config: {e}")
+            logger.error(f"Error loading categories config: {e}")
             self.category_sources = {}
             
         logger.info(f"URL Manager initialized for {crawler_name} with {len(self.category_sources)} categories")

@@ -29,71 +29,81 @@ except Exception as e:
 def import_crawler_module(crawler_name: str):
     """Import crawler module dynamically."""
     try:
-        # Construct the full path to the crawler module
+        # Standardize crawler name format
+        crawler_name = crawler_name.lower()
+        module_name = f"{crawler_name}_crawler"
+        
         module_path = os.path.join(
             project_root,
-            "src",
+            "src", 
             "crawlers",
             "Urls_Crawler",
-            f"{crawler_name}_crawler.py"
+            f"{module_name}.py"
         )
         
         if not os.path.exists(module_path):
             logger.error(f"Crawler module not found at: {module_path}")
             return None
             
-        # Import the module using importlib
-        spec = importlib.util.spec_from_file_location(
-            f"{crawler_name}_crawler",
-            module_path
-        )
+        # Import the module using spec
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         
         return module
-        
     except Exception as e:
-        logger.error(f"Error importing crawler module: {e}")
+        logger.error(f"Failed to import {crawler_name} module: {e}")
         return None
 
-def test_single_category(crawler_name: str, category: str, source_url: str) -> Set[str]:
-    """Test crawling a single category from one source URL."""
-    logger.info(f"Testing {crawler_name} crawler for {category} at {source_url}")
+def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
+    """Test a specific crawler for a category."""
+    logger.info(f"Testing {crawler_name} crawler for {category}")
     
     # Initialize URL manager for testing
-    test_output_dir = "output/test_urls"
-    url_manager = URLManager(test_output_dir, crawler_name)
+    url_manager = URLManager("output/test_urls", crawler_name)
+    
+    # Get source URLs for this crawler/category
+    sources = url_manager.get_sources_for_category(category, crawler_name)
+    if not sources:
+        logger.error(f"No source URLs found for {crawler_name} - {category}")
+        return False
+        
+    # Import the crawler module
+    crawler_module = import_crawler_module(crawler_name)
+    if not crawler_module:
+        logger.error(f"Failed to import {crawler_name} crawler module")
+        return False
+    
+    start_time = time.time()
+    urls_collected = 0
     
     try:
-        # Import the crawler module
-        crawler_module = import_crawler_module(crawler_name)
-        if not crawler_module:
-            logger.error(f"Failed to import {crawler_name} crawler module")
-            return set()
-        
-        # Call the crawler's main function
-        if hasattr(crawler_module, 'crawl_category'):
-            logger.info("Calling crawl_category function...")
-            try:
-                # For BTV crawler, limit to 10 pages
-                if crawler_name.lower() == 'btv':
-                    urls = crawler_module.crawl_category(source_url, category, url_manager, max_pages=10)
-                else:
-                    urls = crawler_module.crawl_category(source_url, category, url_manager)
-            except TypeError as e:
-                # If max_pages is not supported, fall back to standard call
-                logger.warning(f"max_pages not supported by {crawler_name} crawler, using default implementation")
-                urls = crawler_module.crawl_category(source_url, category, url_manager)
-                
-            logger.info(f"Found {len(urls)} URLs")
-            return urls
-        else:
-            logger.error(f"Crawler module does not have crawl_category function")
-            return set()
+        for source_url in sources:
+            logger.info(f"Testing {crawler_name} crawler for {category} at {source_url}")
+            # Use crawl_category function if it exists
+            if hasattr(crawler_module, 'crawl_category'):
+                # Pass max_pages=10 for testing
+                urls = crawler_module.crawl_category(source_url, category, max_pages=10)
+            else:
+                logger.error("Crawler module missing crawl_category function")
+                return False
             
+            if urls:
+                urls_collected += len(urls)
+                logger.info(f"Found {len(urls)} URLs")
+            
+            if urls_collected >= max_urls:
+                break
+                
     except Exception as e:
-        logger.error(f"Error testing crawler: {e}", exc_info=True)
-        return set()
+        logger.error(f"Error testing crawler: {e}")
+        return False
+        
+    duration = time.time() - start_time
+    logger.info(f"\nTest completed in {duration:.2f} seconds")
+    logger.info(f"URLs collected: {urls_collected}")
+    
+    return urls_collected > 0
 
 def load_test_config() -> Dict:
     """Load test configuration from sources.json."""
@@ -107,68 +117,14 @@ def load_test_config() -> Dict:
 
 def main():
     """Main test function."""
-    # Load test configuration
-    config = load_test_config()
-    if not config:
-        logger.error("Failed to load test configuration")
-        return
-        
-    # Ask user which crawler and category to test
-    print("\nAvailable categories and sources:")
-    for category, sources in config.items():
-        print(f"\n{category}:")
-        if isinstance(sources, dict):
-            for site, url in sources.items():
-                print(f"  - {site}: {url}")
-        elif isinstance(sources, list):
-            for url in sources:
-                print(f"  - {url}")
-
-    # Get user input
-    crawler_name = input("\nEnter crawler name to test (e.g., btv, sabay, postkhmer): ").lower()
-    category = input("Enter category to test: ").lower()
+    # Get crawler name from user
+    crawler_name = input("Enter crawler name to test (e.g., btv, sabay, postkhmer): ").strip()
+    category = input("Enter category to test: ").strip()
     
-    # Find source URL for the selected crawler and category
-    source_url = None
-    if category in config:
-        sources = config[category]
-        if isinstance(sources, dict):
-            source_url = sources.get(crawler_name)
-        elif isinstance(sources, list):
-            # For lists of URLs, try to find one matching the crawler
-            for url in sources:
-                if crawler_name in url:
-                    source_url = url
-                    break
-    
-    if not source_url:
-        logger.error(f"No source URL found for {crawler_name} in category {category}")
-        return
-        
-    # Run the test
     logger.info(f"Starting test crawl for {crawler_name} - {category}")
-    start_time = time.time()
     
-    urls = test_single_category(crawler_name, category, source_url)
-    
-    duration = time.time() - start_time
-    logger.info(f"\nTest completed in {duration:.2f} seconds")
-    logger.info(f"URLs collected: {len(urls)}")
-    
-    # Save test results
-    if urls:
-        output_dir = "output/test_results"
-        os.makedirs(output_dir, exist_ok=True)
-        output_file = os.path.join(output_dir, f"test_{crawler_name}_{category}.json")
-        
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(list(urls), f, indent=2, ensure_ascii=False)
-        logger.info(f"Results saved to {output_file}")
+    success = test_crawler(crawler_name, category)
+    sys.exit(0 if success else 1)
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        logger.info("\nTest interrupted by user")
-    except Exception as e:
-        logger.error(f"Test failed: {e}")
+    main()
