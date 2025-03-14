@@ -20,8 +20,7 @@
     "postkhmer": [
       "https://www.postkhmer.com/business",
       "https://www.postkhmer.com/financial"
-    ],
-    "rfanews": "https://www.rfa.org/khmer/news/economy/story_archive"
+    ]
   },
   "environment": {
     "rfanews": "https://www.rfa.org/khmer/news/environment/story_archive"
