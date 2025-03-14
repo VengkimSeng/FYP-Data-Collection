@@ -13,6 +13,7 @@ sys.path.append(project_root)
 
 from src.utils.chrome_setup import setup_chrome_driver
 from src.utils.log_utils import get_crawler_logger
+from src.crawlers.url_manager import URLManager
 
 logger = get_crawler_logger('dapnews')
 
