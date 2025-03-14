@@ -1,13 +1,18 @@
 import os
+import sys
 from selenium import webdriver
 import time
 from bs4 import BeautifulSoup
 import json
-from urllib.parse import urljoin
 import re
+from urllib.parse import urljoin
+
+# Add project root to path for imports
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+sys.path.append(project_root)
+
 from src.utils.chrome_setup import setup_chrome_driver
 from src.utils.log_utils import get_crawler_logger
-from url_manager import URLManager
 
 logger = get_crawler_logger('dapnews')
 
@@ -37,14 +42,16 @@ def extract_urls(html: str, base_url: str) -> set:
             urls.add(url)
     return urls
 
-def crawl_category(start_url: str, category: str, max_pages: int = None) -> set:
-    """
-    Crawl a category and return all article URLs.
+def crawl_category(start_url: str, category: str, max_pages: int = 500) -> set:
+    """Crawl a category and return all article URLs.
     
     Args:
-        start_url: Starting URL for category
-        category: Category name
-        max_pages: Maximum number of pages to crawl (None for unlimited)
+        start_url: URL to start crawling from
+        category: Category being crawled
+        max_pages: Maximum number of pages to crawl (default: 500)
+    
+    Returns:
+        Set of collected article URLs
     """
     urls = set()
     driver = setup_chrome_driver()
@@ -52,7 +59,6 @@ def crawl_category(start_url: str, category: str, max_pages: int = None) -> set:
     
     try:
         while True:
-            # Check page limit
             if max_pages and page > max_pages:
                 logger.info(f"Reached maximum page limit ({max_pages})")
                 break
@@ -69,7 +75,7 @@ def crawl_category(start_url: str, category: str, max_pages: int = None) -> set:
             urls.update(new_urls)
             page += 1
             
-            if len(urls) >= 500:  # Stop after collecting enough URLs
+            if len(urls) >= 500:
                 break
                 
     finally:

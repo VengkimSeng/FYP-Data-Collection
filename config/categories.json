@@ -1,38 +1,35 @@
 {
-  "sport": [
-    "https://btv.com.kh/category/sport",
-    "https://kohsantepheapdaily.com.kh/category/sport",
-    "https://news.sabay.com.kh/topics/sport",
-    "https://dap-news.com/category/sport/"
-  ],
-  "technology": [
-
-    "https://kohsantepheapdaily.com.kh/category/technology",
-    "https://news.sabay.com.kh/topics/technology",
-    "https://dap-news.com/category/technology/"
-  ],
-  "health": [
-
-    "https://www.rfa.org/khmer/news/health/story_archive",
-    "https://dap-news.com/category/health/"
-  ],
-  "economic": [
-   
-    "https://btv.com.kh/category/economic",
-    "https://www.rfa.org/khmer/news/economy/story_archive",
-    "https://www.postkhmer.com/business",
-    "https://www.postkhmer.com/financial",
-    "https://dap-news.com/category/economic/"
-  ],
-  "environment": [
-
-    "https://www.rfa.org/khmer/news/environment/story_archive"
-  ],
-  "politic": [
-
-    "https://www.rfa.org/khmer/news/politics/story_archive",
-    "https://kohsantepheapdaily.com.kh/category/politic",
-    "https://www.postkhmer.com/politics",
-    "https://dap-news.com/category/politic/"
-  ]
+  "sport": {
+    "btv": "https://btv.com.kh/category/sport",
+    "dapnews": "https://dap-news.com/category/sport/",
+    "kohsantepheapdaily": "https://kohsantepheapdaily.com.kh/category/sport",
+    "sabaynews": "https://news.sabay.com.kh/topics/sport"
+  },
+  "technology": {
+    "dapnews": "https://dap-news.com/category/technology/",
+    "kohsantepheapdaily": "https://kohsantepheapdaily.com.kh/category/technology",
+    "sabaynews": "https://news.sabay.com.kh/topics/technology"
+  },
+  "health": {
+    "dapnews": "https://dap-news.com/category/health/",
+    "rfanews": "https://www.rfa.org/khmer/news/health/story_archive"
+  },
+  "economic": {
+    "btv": "https://btv.com.kh/category/economic",
+    "dapnews": "https://dap-news.com/category/economic/",
+    "postkhmer": [
+      "https://www.postkhmer.com/business",
+      "https://www.postkhmer.com/financial"
+    ],
+    "rfanews": "https://www.rfa.org/khmer/news/economy/story_archive"
+  },
+  "environment": {
+    "rfanews": "https://www.rfa.org/khmer/news/environment/story_archive"
+  },
+  "politic": {
+    "dapnews": "https://dap-news.com/category/politic/",
+    "kohsantepheapdaily": "https://kohsantepheapdaily.com.kh/category/politic",
+    "postkhmer": "https://www.postkhmer.com/politics",
+    "rfanews": "https://www.rfa.org/khmer/news/politics/story_archive"
+  }
 }

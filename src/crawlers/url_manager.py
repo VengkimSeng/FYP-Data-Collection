@@ -43,13 +43,23 @@ class URLManager:
         if category not in self.category_sources:
             return []
             
+        category_data = self.category_sources[category]
+        
+        # Handle both list and dict formats
+        if isinstance(category_data, list):
+            if source:
+                # For list format, return all URLs when source matches crawler name
+                return category_data if source.lower() in [url.split('/')[2].replace('www.', '') for url in category_data] else []
+            return category_data
+            
+        # Handle dictionary format
         if source:
-            source_urls = self.category_sources[category].get(source, [])
+            source_urls = category_data.get(source, [])
             return [source_urls] if isinstance(source_urls, str) else source_urls
             
-        # Flatten all sources for the category
+        # Flatten all sources for dictionary format
         sources = []
-        for src_urls in self.category_sources[category].values():
+        for src_urls in category_data.values():
             if isinstance(src_urls, list):
                 sources.extend(src_urls)
             else:
