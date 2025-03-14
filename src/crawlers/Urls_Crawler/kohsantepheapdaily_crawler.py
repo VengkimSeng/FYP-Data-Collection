@@ -31,34 +31,35 @@ def scroll_page(driver, max_attempts=5):
     
     Args:
         driver: WebDriver instance
-        max_attempts: Maximum number of attempts with no new content before stopping
+        max_attempts: Maximum attempts without new content before stopping.
+                     Use -1 for unlimited scrolling until no new content
     """
     last_height = 0
     same_height_count = 0
+    total_scrolls = 0
     
-    while same_height_count < max_attempts:
-        # Scroll down
+    while (max_attempts == -1 or same_height_count < max_attempts):
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(2)  # Wait for content to load
+        time.sleep(2)
         
-        # Get new height
         new_height = driver.execute_script("return document.body.scrollHeight")
         
-        # Check if height changed
         if new_height == last_height:
             same_height_count += 1
-            logger.debug(f"No new content loaded (attempt {same_height_count}/{max_attempts})")
-            
-            # Try scrolling up and down to trigger lazy loading
-            if same_height_count >= 2:
-                logger.debug("Trying scroll up/down to trigger content load")
-                driver.execute_script(f"window.scrollTo(0, {new_height * 0.5});")  # Scroll to middle
-                time.sleep(1)
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")  # Back to bottom
-                time.sleep(1)
+            if same_height_count >= 3:  # Always stop after 3 consecutive no-changes
+                logger.info(f"No new content after {total_scrolls} scrolls")
+                break
+                
+            # Try scroll up/down to trigger lazy loading
+            logger.debug("Trying scroll up/down to trigger content load")
+            driver.execute_script(f"window.scrollTo(0, {new_height * 0.5});")
+            time.sleep(1)
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(1)
         else:
-            same_height_count = 0  # Reset counter when height changes
-            logger.debug(f"New content loaded (height: {new_height})")
+            same_height_count = 0
+            total_scrolls += 1
+            logger.debug(f"New content loaded at scroll {total_scrolls} (height: {new_height})")
             
         last_height = new_height
 
@@ -75,14 +76,18 @@ def extract_urls(html, base_url):
             
     return urls
 
-def crawl_category(url, category, max_scroll=100000):
+def crawl_category(url: str, category: str, url_manager=None, max_scroll: int = -1) -> set:
     """
     Crawl a single category page.
     
     Args:
         url: URL to crawl
         category: Category name
-        max_scroll: Maximum scroll attempts (default: 10)
+        url_manager: Optional URLManager instance for saving URLs
+        max_scroll: Maximum scroll attempts (-1 for unlimited scrolling)
+    
+    Returns:
+        Set of collected URLs
     """
     urls = set()
     driver = setup_driver()
@@ -94,7 +99,13 @@ def crawl_category(url, category, max_scroll=100000):
         
         # Pass max_scroll parameter
         scroll_page(driver, max_attempts=max_scroll)
-        urls.update(extract_urls(driver.page_source, url))
+        page_urls = extract_urls(driver.page_source, url)
+        urls.update(page_urls)
+        
+        # Save URLs if url_manager is provided
+        if url_manager and page_urls:
+            url_manager.add_urls(category, page_urls)
+            logger.info(f"Added {len(page_urls)} URLs using url_manager")
             
     except Exception as e:
         logger.error(f"Error crawling {category}: {e}")
@@ -113,7 +124,7 @@ def main():
             sources = url_manager.get_sources_for_category(category, "kohsantepheap")
             if sources:
                 for url in sources:
-                    urls = crawl_category(url, category)
+                    urls = crawl_category(url, category, url_manager=url_manager)
                     added = url_manager.add_urls(category, urls)
                     logger.info(f"Added {added} URLs for {category}")
             

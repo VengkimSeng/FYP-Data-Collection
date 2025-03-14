@@ -91,12 +91,17 @@ def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
                     urls = crawler_module.crawl_category(source_url, category, max_pages=2)
                     
                 if urls:
+                    # Add URLs to url_manager and save them
+                    added = url_manager.add_urls(category, urls)
                     urls_collected += len(urls)
-                    logger.info(f"Found {len(urls)} URLs")
+                    logger.info(f"Found {len(urls)} URLs, added {added} new unique URLs")
+                    
+                    # Save final results to ensure they're written to disk
+                    url_manager.save_final_results()
             else:
                 logger.error("Crawler module missing crawl_category function")
                 return False
-                
+            
             if urls_collected >= max_urls:
                 break
                 

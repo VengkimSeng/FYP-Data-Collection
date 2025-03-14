@@ -31,16 +31,38 @@ def fetch_page(driver: webdriver.Chrome, url: str) -> str:
         last_height = new_height
     return driver.page_source
 
-def extract_urls(html: str, base_url: str) -> set:
-    """Extract article URLs from page."""
+def extract_urls(html: str, base_url: str, category: str) -> set:
+    """
+    Extract article URLs from page that match the specific category pattern.
+    
+    Args:
+        html: Page HTML content
+        base_url: Base URL for resolving relative URLs
+        category: Category being crawled
+    """
     urls = set()
     soup = BeautifulSoup(html, "html.parser")
-    article_pattern = re.compile(r'^https://dap-news\.com/([^/]+)/(\d{4})/(\d{2})/(\d{2})/(\d+)/$')
+    
+    # Category-specific URL patterns
+    category_patterns = {
+        'economic': r'^https://dap-news\.com/economic/\d{4}/\d{2}/\d{2}/\d+/$',
+        'health': r'^https://dap-news\.com/health/\d{4}/\d{2}/\d{2}/\d+/$',
+        'politic': r'^https://dap-news\.com/politic/\d{4}/\d{2}/\d{2}/\d+/$',
+        'sport': r'^https://dap-news\.com/sport/\d{4}/\d{2}/\d{2}/\d+/$',
+        'technology': r'^https://dap-news\.com/technology/\d{4}/\d{2}/\d{2}/\d+/$'
+    }
+    
+    # Get the pattern for current category
+    pattern = re.compile(category_patterns.get(category, ''))
+    if not pattern.pattern:
+        logger.warning(f"No pattern defined for category: {category}")
+        return urls
     
     for a_tag in soup.find_all("a", href=True):
         url = urljoin(base_url, a_tag["href"])
-        if article_pattern.match(url):
+        if pattern.match(url):
             urls.add(url)
+            
     return urls
 
 def crawl_category(source_url: str, category: str, url_manager=None, max_pages: int = 500) -> set:
@@ -68,9 +90,8 @@ def crawl_category(source_url: str, category: str, url_manager=None, max_pages: 
             driver.get(url)
             time.sleep(2)  # Wait for page to load
             
-            # Extract URLs from current page
-            soup = BeautifulSoup(driver.page_source, "html.parser")
-            new_urls = extract_urls(driver.page_source, source_url)
+            # Pass category to extract_urls
+            new_urls = extract_urls(driver.page_source, source_url, category)
             
             if not new_urls:
                 break
