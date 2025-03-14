@@ -123,10 +123,10 @@ def scrape_urls(driver: webdriver.Chrome) -> Set[str]:
         href = a_tag["href"]
         full_url = urljoin(driver.current_url, href)
         
-        # Only keep URLs containing 'article'
-        if "article" in full_url:
+        # Only keep URLs containing 'article' but not containing 'tag'
+        if "article" in full_url and "/tag/" not in full_url:
             urls.add(full_url)
-            
+    
     return urls
 
 def crawl_category(url: str, category: str, max_pages: int = -1) -> Set[str]:
@@ -143,7 +143,7 @@ def crawl_category(url: str, category: str, max_pages: int = -1) -> Set[str]:
     """
     driver = setup_selenium(CrawlerConfig())
     urls = set()
-    page = 1
+    page = 0
     consecutive_empty = 0
     
     try:
