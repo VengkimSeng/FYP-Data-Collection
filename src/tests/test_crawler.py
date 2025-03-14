@@ -32,25 +32,23 @@ def import_crawler_module(crawler_name: str):
         # Standardize crawler name format
         crawler_name = crawler_name.lower()
         module_name = f"{crawler_name}_crawler"
+        crawler_dir = os.path.join(project_root, "src", "crawlers", "Urls_Crawler")
+
+        # Case-insensitive file matching
+        for filename in os.listdir(crawler_dir):
+            if filename.lower() == f"{module_name}.py":
+                module_path = os.path.join(crawler_dir, filename)
+                logger.info(f"Found crawler module at: {module_path}")
+                
+                # Import the module using spec
+                spec = importlib.util.spec_from_file_location(module_name, module_path)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                return module
+                
+        logger.error(f"Crawler module not found for: {crawler_name}")
+        return None
         
-        module_path = os.path.join(
-            project_root,
-            "src", 
-            "crawlers",
-            "Urls_Crawler",
-            f"{module_name}.py"
-        )
-        
-        if not os.path.exists(module_path):
-            logger.error(f"Crawler module not found at: {module_path}")
-            return None
-            
-        # Import the module using spec
-        spec = importlib.util.spec_from_file_location(module_name, module_path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        
-        return module
     except Exception as e:
         logger.error(f"Failed to import {crawler_name} module: {e}")
         return None
