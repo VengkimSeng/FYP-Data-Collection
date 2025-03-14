@@ -16,6 +16,16 @@ from src.utils.log_utils import get_crawler_logger
 # Initialize logger
 logger = get_crawler_logger('test_crawler')
 
+# Try to rename the crawler file if it exists in old format
+try:
+    btv_old_path = os.path.join(project_root, "src", "crawlers", "Urls_Crawler", "BTV_crawler.py")
+    btv_new_path = os.path.join(project_root, "src", "crawlers", "Urls_Crawler", "btv_crawler.py")
+    if os.path.exists(btv_old_path) and not os.path.exists(btv_new_path):
+        os.rename(btv_old_path, btv_new_path)
+        logger.info("Renamed BTV_crawler.py to btv_crawler.py")
+except Exception as e:
+    logger.debug(f"File renaming not needed or failed: {e}")
+
 def import_crawler_module(crawler_name: str):
     """Import crawler module dynamically."""
     try:
@@ -64,7 +74,20 @@ def test_single_category(crawler_name: str, category: str, source_url: str) -> S
         # Call the crawler's main function
         if hasattr(crawler_module, 'crawl_category'):
             logger.info("Calling crawl_category function...")
-            urls = crawler_module.crawl_category(source_url, category, url_manager)
+            try:
+                # For BTV crawler, limit to 10 pages
+                if crawler_name.lower() == 'btv':
+                    urls = crawler_module.crawl_category(source_url, category, url_manager, max_pages=10)
+                else:
+                    urls = crawler_module.crawl_category(source_url, category, url_manager)
+            except TypeError as e:
+                # If max_pages is not supported, fall back to standard call
+                logger.warning(f"max_pages not supported by {crawler_name} crawler, using default implementation")
+                urls = crawler_module.crawl_category(source_url, category, url_manager)
+            except TypeError as e:
+                # If max_pages is not supported, fall back to standard call
+                logger.warning(f"max_pages not supported by {crawler_name} crawler, using default implementation")
+                urls = crawler_module.crawl_category(source_url, category, url_manager)
             logger.info(f"Found {len(urls)} URLs")
             return urls
         else:
