@@ -62,11 +62,10 @@ class URLSaver:
     
     def _load_urls_from_file(self, file_path: str) -> List[str]:
         try:
-            if file_path.endswith('.json'):
-                with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                if file_path.endswith('.json'):
                     return json.load(f)
-            else:
-                with open(file_path, "r", encoding="utf-8") as f:
+                else:
                     return [line.strip() for line in f if line.strip()]
         except Exception as e:
             self.logger.error(f"Error loading URLs from {file_path}: {e}")

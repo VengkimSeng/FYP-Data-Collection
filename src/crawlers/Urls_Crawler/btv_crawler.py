@@ -55,7 +55,7 @@ def extract_urls(html: str, base_url: str) -> Set[str]:
     
     return urls
 
-def crawl_category(source_url: str, category: str, url_manager=None, max_pages: int = 500) -> Set[str]:
+def crawl_category(source_url: str, category: str, url_manager=None, max_pages: int = -1) -> Set[str]:
     """
     Crawl a category from source URL.
     
@@ -63,7 +63,7 @@ def crawl_category(source_url: str, category: str, url_manager=None, max_pages: 
         source_url: The base URL for the category
         category: Category being crawled
         url_manager: Optional URLManager instance
-        max_pages: Maximum number of pages to crawl (default: 500)
+        max_pages: Maximum number of pages to crawl (default: -1 for unlimited)
     
     Returns:
         Set of collected URLs
@@ -72,9 +72,47 @@ def crawl_category(source_url: str, category: str, url_manager=None, max_pages: 
     current_page = 1
     empty_pages_count = 0  # Track consecutive empty pages
     
-    while current_page <= max_pages:
+    # First try the direct URL (important!)
+    logger.info(f"Starting crawl of category '{category}' from URL: {source_url}")
+    driver = setup_chrome_driver(
+        headless=True, 
+        disable_images=True,
+        random_user_agent=True
+    )
+    
+    try:
+        # Process the first page
+        logger.info(f"Crawling main page: {source_url}")
+        html = fetch_page(driver, source_url)
+        
+        if html:
+            logger.info(f"Successfully fetched main page HTML ({len(html)} bytes)")
+            page_urls = extract_urls(html, source_url)
+            
+            if page_urls:
+                all_urls.update(page_urls)
+                logger.info(f"Found {len(page_urls)} URLs on main page")
+            else:
+                logger.warning("No URLs found on main page")
+                empty_pages_count += 1
+        else:
+            logger.error("Failed to fetch main page HTML")
+            empty_pages_count += 1
+    except Exception as e:
+        logger.error(f"Error on main page: {e}")
+        empty_pages_count += 1
+    finally:
+        driver.quit()
+    
+    # Continue with pagination starting from page 2
+    current_page = 2  # Start from page 2
+    
+    # For unlimited pages, use a large number that's effectively infinite
+    max_iter = 10000 if max_pages == -1 else max_pages
+    
+    while current_page <= max_iter and empty_pages_count < 2:
         try:
-            # Use query parameter for pagination instead of path
+            # Use query parameter for pagination - example: https://btv.com.kh/category/sport?page=2
             page_url = f"{source_url}{'&' if '?' in source_url else '?'}page={current_page}"
             logger.info(f"Crawling page {current_page}: {page_url}")
             

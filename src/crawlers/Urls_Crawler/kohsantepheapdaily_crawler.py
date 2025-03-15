@@ -38,9 +38,15 @@ def scroll_page(driver, max_attempts=5):
     same_height_count = 0
     total_scrolls = 0
     
-    while (max_attempts == -1 or same_height_count < max_attempts):
+    # Convert -1 to a large number for unlimited scrolling
+    effective_max = 10000 if max_attempts == -1 else max_attempts
+    
+    # Reduce wait time to avoid timeouts
+    scroll_wait = 1  # Reduced from 2 seconds to 1 second
+    
+    while (same_height_count < 3 and (max_attempts == -1 or total_scrolls < effective_max)):
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(2)
+        time.sleep(scroll_wait)  # Reduced wait time
         
         new_height = driver.execute_script("return document.body.scrollHeight")
         
@@ -97,7 +103,7 @@ def crawl_category(url: str, category: str, url_manager=None, max_scroll: int = 
         driver.get(url)
         time.sleep(5)  # Initial load
         
-        # Pass max_scroll parameter
+        # Pass max_scroll parameter directly (already handles -1)
         scroll_page(driver, max_attempts=max_scroll)
         page_urls = extract_urls(driver.page_source, url)
         urls.update(page_urls)

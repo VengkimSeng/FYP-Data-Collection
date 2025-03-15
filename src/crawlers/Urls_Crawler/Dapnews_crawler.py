@@ -43,29 +43,50 @@ def extract_urls(html: str, base_url: str, category: str) -> set:
     urls = set()
     soup = BeautifulSoup(html, "html.parser")
     
-    # Category-specific URL patterns
-    category_patterns = {
-        'economic': r'^https://dap-news\.com/economic/\d{4}/\d{2}/\d{2}/\d+/$',
-        'health': r'^https://dap-news\.com/health/\d{4}/\d{2}/\d{2}/\d+/$',
-        'politic': r'^https://dap-news\.com/politic/\d{4}/\d{2}/\d{2}/\d+/$',
-        'sport': r'^https://dap-news\.com/sport/\d{4}/\d{2}/\d{2}/\d+/$',
-        'technology': r'^https://dap-news\.com/technology/\d{4}/\d{2}/\d{2}/\d+/$'
-    }
+    # Add debugging 
+    logger.debug(f"Extracting URLs from HTML ({len(html)} bytes)")
     
-    # Get the pattern for current category
-    pattern = re.compile(category_patterns.get(category, ''))
-    if not pattern.pattern:
-        logger.warning(f"No pattern defined for category: {category}")
-        return urls
+    # More relaxed matching approach
+    category_path = category.lower()
     
+    # First try specific matches
     for a_tag in soup.find_all("a", href=True):
         url = urljoin(base_url, a_tag["href"])
-        if pattern.match(url):
+        
+        # Match URLs with category pattern and number pattern
+        if f"/{category_path}/" in url.lower() and re.search(r'/\d{4}/\d{2}/\d{2}/\d+/$', url):
             urls.add(url)
+    
+    # If no URLs found with strict pattern, try more relaxed matching
+    if not urls:
+        logger.info("No strict matches found, trying relaxed matching")
+        for a_tag in soup.find_all("a", href=True):
+            url = urljoin(base_url, a_tag["href"])
+            
+            # More relaxed pattern matching
+            if all([
+                f"/{category_path}/" in url.lower(),
+                not url.endswith('/'),  # Skip category index pages
+                not url.endswith('.jpg'),
+                not url.endswith('.png'),
+                not re.search(r'/page/\d+/?$', url),  # Skip pagination URLs
+                "dap-news.com" in url,  # Ensure it's from the right domain
+            ]):
+                urls.add(url)
+    
+    logger.info(f"Found {len(urls)} URLs for category '{category}'")
+    if not urls:
+        # Log the page title for debugging
+        page_title = soup.title.text if soup.title else "No title"
+        logger.debug(f"Page title: {page_title}")
+        
+        # Log a few links found on the page for debugging
+        all_links = [urljoin(base_url, a['href']) for a in soup.find_all("a", href=True)][:10]
+        logger.debug(f"Sample links on page: {all_links}")
             
     return urls
 
-def crawl_category(source_url: str, category: str, url_manager=None, max_pages: int = 500) -> set:
+def crawl_category(source_url: str, category: str, url_manager=None, max_pages: int = -1) -> set:
     """
     Crawl a category and return all article URLs.
     
@@ -73,42 +94,75 @@ def crawl_category(source_url: str, category: str, url_manager=None, max_pages: 
         source_url: The base URL for the category
         category: Category being crawled
         url_manager: Optional URLManager instance
-        max_pages: Maximum number of pages to crawl
+        max_pages: Maximum number of pages to crawl (-1 for unlimited)
     
     Returns:
         Set of collected URLs
     """
-    urls = set()
-    driver = setup_chrome_driver()
+    all_urls = set()
+    driver = setup_chrome_driver(
+        headless=True, 
+        disable_images=True,
+        random_user_agent=True
+    )
     
     try:
-        page = 1
-        while page <= max_pages:
-            url = f"{source_url}page/{page}/" if page > 1 else source_url
-            logger.info(f"Crawling {category} page {page}")
-            
-            driver.get(url)
-            time.sleep(2)  # Wait for page to load
-            
-            # Pass category to extract_urls
-            new_urls = extract_urls(driver.page_source, source_url, category)
-            
-            if not new_urls:
-                break
-                
-            urls.update(new_urls)
+        # First try the main category page
+        logger.info(f"Crawling main page for {category}: {source_url}")
+        driver.get(source_url)
+        time.sleep(5)  # Initial load
+        
+        main_urls = extract_urls(driver.page_source, source_url, category)
+        if main_urls:
+            all_urls.update(main_urls)
             if url_manager:
-                url_manager.add_urls(category, new_urls)
-            logger.info(f"Found {len(new_urls)} URLs on page {page}")
+                added = url_manager.add_urls(category, main_urls)
+                logger.info(f"Added {added} URLs from main page")
+        
+        # Then try pagination if needed
+        page = 2  # Start from page 2
+        consecutive_empty = 0
+        
+        # For unlimited pages, use a large number that's effectively infinite
+        max_iter = 10000 if max_pages == -1 else max_pages
+        
+        while page <= max_iter and consecutive_empty < 2:
+            # Ensure the source_url has a trailing slash for consistent pagination
+            # Example: https://dap-news.com/category/sport/page/2/
+            base_url = source_url if source_url.endswith('/') else f"{source_url}/"
+            page_url = f"{base_url}page/{page}/"
+            logger.info(f"Crawling {category} page {page}: {page_url}")
             
+            driver.get(page_url)
+            time.sleep(5)  # Wait for page to load
+            
+            page_urls = extract_urls(driver.page_source, source_url, category)
+            
+            if page_urls:
+                consecutive_empty = 0
+                all_urls.update(page_urls)
+                if url_manager:
+                    added = url_manager.add_urls(category, page_urls)
+                    logger.info(f"Added {added} new URLs on page {page}")
+                logger.info(f"Found {len(page_urls)} URLs on page {page}")
+            else:
+                consecutive_empty += 1
+                logger.info(f"No URLs found on page {page} (attempt {consecutive_empty}/2)")
+                
             page += 1
-            if len(urls) >= 500:
+            
+            # Circuit breaker for too many URLs
+            if len(all_urls) >= 500:
+                logger.info("Reached URL limit, stopping crawl")
                 break
                 
+    except Exception as e:
+        logger.error(f"Error during crawl: {e}")
     finally:
         driver.quit()
     
-    return urls
+    logger.info(f"Completed crawling {category} with {len(all_urls)} total URLs")
+    return all_urls
 
 def main():
     """Main entry point for Dapnews crawler."""

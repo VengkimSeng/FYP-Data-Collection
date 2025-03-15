@@ -73,8 +73,13 @@ class URLManager:
             if isinstance(category_data, list):
                 if source:
                     # Filter list URLs by domain containing source name
-                    domain_filter = source.lower().replace('crawler', '')
-                    return [url for url in category_data if domain_filter in url.lower()]
+                    source_lower = source.lower().replace('crawler', '')
+                    filtered_urls = []
+                    for url in category_data:
+                        if isinstance(url, str) and source_lower in url.lower():
+                            logger.debug(f"Found matching URL for {source} in {category}: {url}")
+                            filtered_urls.append(url)
+                    return filtered_urls
                 return category_data
             
             # Dict format: {"source1": [url1, url2], "source2": url3}
@@ -83,15 +88,21 @@ class URLManager:
                     # Try exact key match first
                     if source in category_data:
                         source_urls = category_data[source]
-                        return [source_urls] if isinstance(source_urls, str) else source_urls
+                        urls = [source_urls] if isinstance(source_urls, str) else source_urls
+                        logger.debug(f"Found exact match for {source} in {category}: {urls}")
+                        return urls
                     
                     # Try partial key match next (e.g., "rfa" matches "rfanews")
-                    source_key = next((k for k in category_data if source.lower() in k.lower()), None)
-                    if source_key:
-                        source_urls = category_data[source_key]
-                        return [source_urls] if isinstance(source_urls, str) else source_urls
+                    source_lower = source.lower().replace('crawler', '')
+                    for key in category_data.keys():
+                        if source_lower in key.lower():
+                            source_urls = category_data[key]
+                            urls = [source_urls] if isinstance(source_urls, str) else source_urls
+                            logger.debug(f"Found partial match for {source} in key {key}: {urls}")
+                            return urls
                     
                     # No matches found
+                    logger.debug(f"No matching sources found for {source} in {category}")
                     return []
                 
                 # No source specified, return all URLs
@@ -111,6 +122,21 @@ class URLManager:
         except Exception as e:
             logger.error(f"Error getting sources for {category}/{source}: {e}")
             return []
+
+    def get_category_urls(self, category: str) -> List[str]:
+        """Get current URLs for a category."""
+        output_file = os.path.join(self.output_dir, f"{category}.json")
+        urls = []
+        
+        # Load existing data if file exists
+        if os.path.exists(output_file):
+            try:
+                with open(output_file, 'r', encoding='utf-8') as f:
+                    urls = json.load(f)
+            except Exception as e:
+                logger.error(f"Error reading {output_file}: {e}")
+                
+        return urls
 
     def _save_category(self, category: str) -> None:
         """Save category URLs to file with simple list format."""

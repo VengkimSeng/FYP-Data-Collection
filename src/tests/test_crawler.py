@@ -1,6 +1,6 @@
 import os
 import sys
-import time# idaijasd
+import time
 import json
 import importlib.util
 from typing import Dict, Set, List
@@ -25,6 +25,16 @@ try:
         logger.info("Renamed BTV_crawler.py to btv_crawler.py")
 except Exception as e:
     logger.debug(f"File renaming not needed or failed: {e}")
+
+def load_categories():
+    """Load categories from the JSON file."""
+    try:
+        config_path = os.path.join(project_root, "config", "categories.json")
+        with open(config_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading categories: {e}")
+        return {}
 
 def import_crawler_module(crawler_name: str):
     """Import crawler module dynamically."""
@@ -54,11 +64,21 @@ def import_crawler_module(crawler_name: str):
         return None
 
 def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
-    """Test a specific crawler for a category."""
+    """
+    Test a specific crawler for a category.
+    
+    Args:
+        crawler_name: Name of the crawler to test
+        category: Category to crawl
+        max_urls: Maximum number of URLs to collect (-1 for unlimited)
+    
+    Returns:
+        bool: Success or failure
+    """
     logger.info(f"Testing {crawler_name} crawler for {category}")
     
     # Initialize URL manager for testing with absolute path
-    output_dir = os.path.abspath("output/test_urls")
+    output_dir = os.path.abspath("output/urls")  # Changed to use main output dir
     url_manager = URLManager(output_dir, crawler_name)
     logger.info(f"URLs will be saved to: {os.path.join(output_dir, f'{category}.json')}")
     
@@ -87,17 +107,17 @@ def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
                     # Call crawl_category with appropriate parameters based on crawler type
                     urls = None
                     if crawler_name == "rfanews":
-                        urls = crawler_module.crawl_category(source_url, category, max_clicks=2)
+                        urls = crawler_module.crawl_category(source_url, category, max_clicks=-1)
                     elif crawler_name == "postkhmer":
-                        urls = crawler_module.crawl_category(source_url, category, max_click=2)
+                        urls = crawler_module.crawl_category(source_url, category, max_click=-1)
                     elif crawler_name == "kohsantepheapdaily":
-                        urls = crawler_module.crawl_category(source_url, category, max_scroll=5)
+                        urls = crawler_module.crawl_category(source_url, category, max_scroll=-1)
                     elif crawler_name == "dapnews":
-                        urls = crawler_module.crawl_category(source_url, category, max_pages=2)
+                        urls = crawler_module.crawl_category(source_url, category, max_pages=-1)
                     elif crawler_name == "sabaynews":
-                        urls = crawler_module.crawl_category(source_url, category, max_pages=2)
+                        urls = crawler_module.crawl_category(source_url, category, max_pages=-1)
                     else:
-                        urls = crawler_module.crawl_category(source_url, category, max_pages=2)
+                        urls = crawler_module.crawl_category(source_url, category, max_pages=-1)
                     
                     # Safety checks on returned URLs
                     if not urls:
@@ -147,7 +167,8 @@ def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
                 logger.error("Crawler module missing crawl_category function")
                 return False
             
-            if urls_collected >= max_urls:
+            # Only check max_urls if it's not set to unlimited (-1)
+            if max_urls != -1 and urls_collected >= max_urls:
                 break
                 
     except Exception as e:
@@ -186,24 +207,18 @@ def get_available_categories(url_manager: URLManager) -> List[str]:
 
 def main():
     """Main test function."""
-    url_manager = URLManager("output/test_urls", "test")
+    # Check if running in production mode
+    is_prod_mode = len(sys.argv) > 1 and sys.argv[1].lower() == "prod"
     
-    # Show available options
-    crawlers = get_available_crawlers()
+    url_manager = URLManager("output/urls", "test")
+    
+    # Show available categories
     categories = get_available_categories(url_manager)
+    crawlers = get_available_crawlers()
     
-    # Display options in lowercase for consistency
-    print("\nAvailable crawlers:")
-    print(", ".join(crawlers))
     print("\nAvailable categories:")
     print(", ".join(categories))
     print()
-    
-    # Get and validate crawler name case-insensitively
-    crawler_name = input("Enter crawler name to test: ").strip().lower()
-    while crawler_name not in crawlers:
-        print(f"Invalid crawler. Please choose from: {', '.join(crawlers)}")
-        crawler_name = input("Enter crawler name to test: ").strip().lower()
     
     # Get category from user
     category = input("Enter category to test: ").strip().lower()
@@ -211,9 +226,63 @@ def main():
         print(f"Invalid category. Please choose from: {', '.join(categories)}")
         category = input("Enter category to test: ").strip().lower()
     
-    logger.info(f"Starting test crawl for {crawler_name} - {category}")
-    success = test_crawler(crawler_name, category)
-    sys.exit(0 if success else 1)
+    if is_prod_mode:
+        # In production mode, run all relevant crawlers for this category
+        logger.info(f"Starting production crawl for category: {category}")
+        
+        # Load categories to find relevant crawlers
+        categories_config = load_categories()
+        if not categories_config:
+            logger.error("Failed to load categories configuration")
+            sys.exit(1)
+        
+        # Find crawlers that have sources for this category
+        if category in categories_config:
+            category_crawlers = categories_config[category].keys()
+            # Filter by available crawlers
+            relevant_crawlers = [c for c in category_crawlers if c in crawlers]
+            
+            if not relevant_crawlers:
+                logger.error(f"No crawlers found for category: {category}")
+                sys.exit(1)
+            
+            logger.info(f"Running {len(relevant_crawlers)} crawlers for category '{category}': {', '.join(relevant_crawlers)}")
+            
+            success = True
+            for crawler in relevant_crawlers:
+                logger.info(f"\n{'=' * 50}")
+                logger.info(f"RUNNING {crawler.upper()} CRAWLER FOR {category.upper()}")
+                logger.info(f"{'=' * 50}")
+                crawler_success = test_crawler(crawler, category, max_urls=-1)  # -1 means unlimited
+                if not crawler_success:
+                    logger.warning(f"Crawler {crawler} failed for category {category}")
+                    success = False
+                else:
+                    logger.info(f"Crawler {crawler} completed successfully for category {category}")
+            
+            logger.info(f"\n{'=' * 50}")
+            logger.info(f"PRODUCTION CRAWL FOR {category.upper()} COMPLETED")
+            logger.info(f"Overall status: {'SUCCESS' if success else 'FAILURE'}")
+            logger.info(f"{'=' * 50}")
+            sys.exit(0 if success else 1)
+        else:
+            logger.error(f"Category not found in configuration: {category}")
+            sys.exit(1)
+    else:
+        # In test mode, only run one crawler as specified by user
+        print("\nAvailable crawlers:")
+        print(", ".join(crawlers))
+        print()
+        
+        # Get and validate crawler name case-insensitively
+        crawler_name = input("Enter crawler name to test: ").strip().lower()
+        while crawler_name not in crawlers:
+            print(f"Invalid crawler. Please choose from: {', '.join(crawlers)}")
+            crawler_name = input("Enter crawler name to test: ").strip().lower()
+        
+        logger.info(f"Starting test crawl for {crawler_name} - {category}")
+        success = test_crawler(crawler_name, category)
+        sys.exit(0 if success else 1)
 
 if __name__ == "__main__":
     main()
