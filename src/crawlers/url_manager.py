@@ -71,26 +71,53 @@ class URLManager:
             
         category_data = self.category_sources[category]
         
-        # Handle both list and dict formats
-        if isinstance(category_data, list):
-            if source:
-                # For list format, return all URLs when source matches crawler name
-                return category_data if source.lower() in [url.split('/')[2].replace('www.', '') for url in category_data] else []
-            return category_data
+        # Debug logging to understand the data structure
+        logger.debug(f"Category data structure for {category}: {type(category_data)}")
+        
+        # Handle different data structures safely
+        try:
+            # List format: [url1, url2, ...]
+            if isinstance(category_data, list):
+                if source:
+                    # Filter list URLs by domain containing source name
+                    domain_filter = source.lower().replace('crawler', '')
+                    return [url for url in category_data if domain_filter in url.lower()]
+                return category_data
             
-        # Handle dictionary format
-        if source:
-            source_urls = category_data.get(source, [])
-            return [source_urls] if isinstance(source_urls, str) else source_urls
-            
-        # Flatten all sources for dictionary format
-        sources = []
-        for src_urls in category_data.values():
-            if isinstance(src_urls, list):
-                sources.extend(src_urls)
+            # Dict format: {"source1": [url1, url2], "source2": url3}
+            elif isinstance(category_data, dict):
+                if source:
+                    # Try exact key match first
+                    if source in category_data:
+                        source_urls = category_data[source]
+                        return [source_urls] if isinstance(source_urls, str) else source_urls
+                    
+                    # Try partial key match next (e.g., "rfa" matches "rfanews")
+                    source_key = next((k for k in category_data if source.lower() in k.lower()), None)
+                    if source_key:
+                        source_urls = category_data[source_key]
+                        return [source_urls] if isinstance(source_urls, str) else source_urls
+                    
+                    # No matches found
+                    return []
+                
+                # No source specified, return all URLs
+                sources = []
+                for src_urls in category_data.values():
+                    if isinstance(src_urls, list):
+                        sources.extend(src_urls)
+                    else:
+                        sources.append(src_urls)
+                return sources
+                
             else:
-                sources.append(src_urls)
-        return sources
+                # Unexpected data type, return empty list
+                logger.warning(f"Unexpected category data type: {type(category_data)}")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Error getting sources for {category}/{source}: {e}")
+            return []
 
     def _save_category(self, category: str) -> None:
         """Save category URLs to file with source information."""

@@ -53,8 +53,76 @@ def import_crawler_module(crawler_name: str):
         logger.error(f"Failed to import {crawler_name} module: {e}")
         return None
 
+def test_rfa_crawler(source_url: str, category: str) -> bool:
+    """Specialized function for testing RFA news crawler."""
+    try:
+        logger.info(f"Testing RFA crawler for {category} at {source_url}")
+        
+        # Initialize URL manager with absolute path
+        output_dir = os.path.abspath("output/test_urls")
+        url_manager = URLManager(output_dir, "rfanews")
+        
+        # Import the crawler module
+        crawler_module = import_crawler_module("rfanews")
+        if not crawler_module:
+            logger.error("Failed to import RFA crawler module")
+            return False
+        
+        # Crawl for URLs with direct approach
+        urls = crawler_module.crawl_category(source_url, category, max_clicks=2)
+        
+        # Safety checks on returned URLs
+        if not urls:
+            logger.warning("RFA crawler returned no URLs")
+            return False
+            
+        if not isinstance(urls, (list, set)):
+            logger.error(f"RFA crawler returned invalid URL type: {type(urls)}")
+            return False
+            
+        # Convert to set for deduplication
+        urls = set(urls)
+        
+        # Save URLs directly to JSON file to avoid URLManager issues
+        output_file = os.path.join(output_dir, f"{category}.json")
+        try:
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(list(urls), f, ensure_ascii=False, indent=2)
+            logger.info(f"Saved {len(urls)} URLs to {output_file}")
+            return True
+        except Exception as e:
+            logger.error(f"Error saving URLs to file: {e}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error in RFA crawler test: {str(e)}")
+        return False
+
 def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
     """Test a specific crawler for a category."""
+    logger.info(f"Testing {crawler_name} crawler for {category}")
+    
+    # Special handling for RFA crawler
+    if crawler_name.lower() == "rfanews":
+        # Get source URLs for RFA
+        output_dir = os.path.abspath("output/test_urls")
+        url_manager = URLManager(output_dir, crawler_name)
+        sources = url_manager.get_sources_for_category(category, crawler_name)
+        
+        if not sources:
+            logger.error(f"No source URLs found for {crawler_name} - {category}")
+            return False
+            
+        # Test each source URL
+        success = False
+        for source_url in sources:
+            if test_rfa_crawler(source_url, category):
+                success = True
+                break
+                
+        return success
+
+    # Regular crawler testing for non-RFA crawlers
     logger.info(f"Testing {crawler_name} crawler for {category}")
     
     # Initialize URL manager for testing with absolute path
@@ -82,28 +150,35 @@ def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
             logger.info(f"Testing {crawler_name} crawler for {category} at {source_url}")
             
             if hasattr(crawler_module, 'crawl_category'):
-                # Use appropriate parameters based on crawler
-                if crawler_name == "kohsantepheapdaily":
-                    urls = crawler_module.crawl_category(source_url, category, max_scroll=10)
-                elif crawler_name == "dapnews":
-                    urls = crawler_module.crawl_category(source_url, category, max_pages=2)
-                elif crawler_name == "postkhmer":
-                    urls = crawler_module.crawl_category(source_url, category, max_click=2)
-                elif crawler_name == "sabaynews":
-                    urls = crawler_module.crawl_category(source_url, category, max_pages=2)
-                elif crawler_name == "rfanews":
-                    urls = crawler_module.crawl_category(source_url, category, max_clicks=2)
-                else:
-                    urls = crawler_module.crawl_category(source_url, category, max_pages=2)
+                try:
+                    if crawler_name == "rfanews":
+                        urls = crawler_module.crawl_category(source_url, category, max_clicks=2)
+                        if isinstance(urls, (list, set)):
+                            urls = set(urls)
+                        else:
+                            logger.error(f"Crawler returned invalid type: {type(urls)}")
+                            continue
+                    elif crawler_name == "kohsantepheapdaily":
+                        urls = crawler_module.crawl_category(source_url, category, max_scroll=10)
+                    elif crawler_name == "dapnews":
+                        urls = crawler_module.crawl_category(source_url, category, max_pages=2)
+                    elif crawler_name == "postkhmer":
+                        urls = crawler_module.crawl_category(source_url, category, max_click=2)
+                    elif crawler_name == "sabaynews":
+                        urls = crawler_module.crawl_category(source_url, category, max_pages=2)
+                    else:
+                        urls = crawler_module.crawl_category(source_url, category, max_pages=2)
                     
-                if urls:
-                    # Add URLs to url_manager and save them
-                    added = url_manager.add_urls(category, urls)
-                    urls_collected += len(urls)
-                    logger.info(f"Found {len(urls)} URLs, added {added} new unique URLs")
+                    if urls:
+                        # Add URLs to url_manager
+                        added = url_manager.add_urls(category, urls)
+                        urls_collected += len(urls)
+                        logger.info(f"Found {len(urls)} URLs, added {added} new unique URLs")
+                        url_manager.save_final_results()
                     
-                    # Save final results to ensure they're written to disk
-                    url_manager.save_final_results()
+                except Exception as e:
+                    logger.error(f"Error during crawl_category: {str(e)}")
+                    continue
             else:
                 logger.error("Crawler module missing crawl_category function")
                 return False

@@ -12,7 +12,7 @@
   },
   "health": {
     "dapnews": "https://dap-news.com/category/health/",
-    "rfanews": "https://www.rfa.org/khmer/news/health/story_archive"
+    "rfanews": "https://www.rfa.org/khmer/health/story_archive"
   },
   "economic": {
     "btv": "https://btv.com.kh/category/economic",
@@ -23,12 +23,12 @@
     ]
   },
   "environment": {
-    "rfanews": "https://www.rfa.org/khmer/news/environment/story_archive"
+    "rfanews": "https://www.rfa.org/khmer/environment/story_archive"
   },
   "politic": {
     "dapnews": "https://dap-news.com/category/politic/",
     "kohsantepheapdaily": "https://kohsantepheapdaily.com.kh/category/politic",
     "postkhmer": "https://www.postkhmer.com/politics",
-    "rfanews": "https://www.rfa.org/khmer/news/politics/story_archive"
+    "rfanews": "https://www.rfa.org/khmer/politics/story_archive"
   }
 }
