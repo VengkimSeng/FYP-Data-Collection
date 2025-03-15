@@ -1,703 +1,206 @@
-# !/usr/bin/env python3
+#!/usr/bin/env python3
 """
-Master Crawler Controller
+Simplified Crawler Manager
 
-This script orchestrates multiple crawlers to extract article URLs from different websites
-based on categories defined in categories.json.
+This script runs all available crawlers, processes URLs from configured sources,
+and saves results to output/urls directory using the unified approach.
 """
 
 import os
 import sys
-import json
-import random
-import argparse
-import logging
 import time
-import importlib
-import threading
+import json
+import logging
+import argparse
 import concurrent.futures
-from typing import Dict, List, Set, Tuple, Optional
-from urllib.parse import urlparse
-import shutil
+from typing import Dict, List, Set
 
-# Add the project root and src directory to Python path
+# Add project root to path for imports
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(project_root)
-sys.path.append(os.path.join(project_root, "src"))
 
-# Local imports (after path setup)
-from utils.chrome_setup import setup_chrome_driver, setup_chrome_options
-from utils.crawler_components import CrawlerComponents
-from crawlers.crawler_utils import check_required_packages, setup_smart_components 
-from crawlers.category_handler import CategoryHandler
-from crawlers.url_processor import save_urls_to_file, filter_article_urls
+from src.utils.chrome_setup import setup_chrome_driver
+from src.crawlers.url_manager import URLManager
 from src.utils.log_utils import get_crawler_logger
 
-# Replace old logging setup with new logger
-logger = get_crawler_logger('master_crawler')
+# Initialize logger
+logger = get_crawler_logger('crawler_manager')
 
-# Check for required packages before proceeding
-check_required_packages()
-
-# Define required packages
-REQUIRED_PACKAGES = ["selenium", "bs4"]
-
-# Check for required packages before proceeding
-def check_required_packages():
-    """Check if required packages are installed."""
-    missing_packages = []
-    for package in REQUIRED_PACKAGES:
-        try:
-            importlib.import_module(package)
-        except ImportError:
-            missing_packages.append(package)
-    
-    if missing_packages:
-        print("\n⚠️  Missing required Python packages ⚠️")
-        print("Please install the following packages before running this script:")
-        print(f"pip install {' '.join(missing_packages)}")
-        print("\nFull installation command:")
-        print(f"pip install {' '.join(REQUIRED_PACKAGES)}")
-        sys.exit(1)
-
-# Check for required packages before attempting imports
-check_required_packages()
-
-# Import the chrome_setup module for driver configuration
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from src.utils.chrome_setup import setup_chrome_driver, setup_chrome_options
-
-# Add the URL improve directory to the path for importing crawlers
-CRAWLERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Urls_Crawler")
-sys.path.append(CRAWLERS_DIR)
-
-# Override crawler save functions to redirect output to specified directory
-def override_crawler_save_functions(output_dir):
-    """Override URL saving functions in crawler modules to use our output directory."""
+def import_crawler_module(crawler_name: str):
+    """Import crawler module dynamically."""
     try:
-        # Override Dapnews_crawler save function
-        import crawlers.Urls_Crawler.Dapnews_crawler as Dapnews_crawler
-        Dapnews_crawler.save_to_file = lambda category, links: save_urls_to_file(
-            links, 
-            os.path.join(output_dir, f"{category}.json")
-        )
+        # Standardize crawler name format
+        crawler_name = crawler_name.lower()
+        module_name = f"{crawler_name}_crawler"
+        crawler_dir = os.path.join(project_root, "src", "crawlers", "Urls_Crawler")
+
+        # Case-insensitive file matching
+        for filename in os.listdir(crawler_dir):
+            if filename.lower() == f"{module_name}.py":
+                module_path = os.path.join(crawler_dir, filename)
+                logger.info(f"Found crawler module at: {module_path}")
+                
+                # Import the module using spec
+                import importlib.util
+                spec = importlib.util.spec_from_file_location(module_name, module_path)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                return module
+                
+        logger.error(f"Crawler module not found for: {crawler_name}")
+        return None
         
-        # Override BTV_crawler save function
-        import crawlers.Urls_Crawler.BTV_crawler as BTV_crawler
-        BTV_crawler.save_to_file = lambda category, links: save_urls_to_file(
-            links, 
-            os.path.join(output_dir, f"{category}.json")
-        )
-        
-        # Override kohsantepheapdaily_crawler save function
-        import crawlers.Urls_Crawler.kohsantepheapdaily_crawler as kohsantepheapdaily_crawler
-        kohsantepheapdaily_crawler.save_to_file = lambda category, links: save_urls_to_file(
-            links, 
-            os.path.join(output_dir, f"{category}.json")
-        )
-        
-        # Override sabaynews_crawler save_urls function
-        import crawlers.Urls_Crawler.sabaynews_crawler as sabaynews_crawler
-        sabaynews_crawler.save_urls = lambda txt_file, json_file, urls: save_urls_to_file(
-            urls,
-            os.path.join(output_dir, f"{os.path.basename(json_file).split('_')[0]}.json")
-        )
-        
-        # Override postkhmer_crawler save function
-        import crawlers.Urls_Crawler.postkhmer_crawler as postkhmer_crawler
-        postkhmer_crawler.save_urls_to_file = lambda file_path, urls: save_urls_to_file(
-            urls,
-            os.path.join(output_dir, f"{os.path.basename(file_path).split('_')[0]}.json")
-        )
-        
-        # Override rfanews_crawler save function
-        import crawlers.Urls_Crawler.rfanews_crawler as rfanews_crawler
-        rfanews_crawler.save_to_json = lambda data, filename: save_urls_to_file(
-            data,
-            os.path.join(output_dir, f"{os.path.basename(filename).split('_')[0]}.json")
-        )
-        
-        logger.info("Successfully overrode crawler save functions to use unified output directory")
     except Exception as e:
-        logger.error(f"Error overriding crawler save functions: {e}")
+        logger.error(f"Failed to import {crawler_name} module: {e}")
+        return None
 
-# Try to import the url_saver module (used by some crawlers)
-try:
-    from src.utils.url_saver import save_urls_to_file
-except ImportError:
-    # Create a simple version if not available
-    def save_urls_to_file(urls, output_path, format_type="json", **kwargs):
-        """Simple implementation of save_urls_to_file function."""
-        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+def crawl_with_module(crawler_name: str, category: str, source_url: str, url_manager, args):
+    """Run a specific crawler for a source URL and category."""
+    logger.info(f"Running {crawler_name} crawler for {category} at {source_url}")
+    
+    # Import the crawler module
+    crawler_module = import_crawler_module(crawler_name)
+    if not crawler_module:
+        logger.error(f"Failed to import {crawler_name} crawler module")
+        return 0
+    
+    try:
+        # Call crawl_category with appropriate parameters based on crawler type
+        urls = None
+        if crawler_name == "rfanews":
+            urls = crawler_module.crawl_category(source_url, category, max_clicks=args.max_clicks)
+        elif crawler_name == "postkhmer":
+            urls = crawler_module.crawl_category(source_url, category, max_click=args.max_clicks)
+        elif crawler_name == "kohsantepheapdaily":
+            urls = crawler_module.crawl_category(source_url, category, max_scroll=args.max_scrolls)
+        elif crawler_name == "dapnews":
+            urls = crawler_module.crawl_category(source_url, category, max_pages=args.max_pages)
+        elif crawler_name == "sabaynews":
+            urls = crawler_module.crawl_category(source_url, category, max_pages=args.max_pages)
+        else:
+            urls = crawler_module.crawl_category(source_url, category, max_pages=args.max_pages)
         
-        unique_urls = list(set(urls))
-        if format_type.lower() == "json":
-            with open(output_path, "w", encoding="utf-8") as f:
-                json.dump(unique_urls, f, ensure_ascii=False, indent=4)
-        elif format_type.lower() == "txt":
-            with open(output_path, "w", encoding="utf-8") as f:
-                for url in unique_urls:
-                    f.write(f"{url}\n")
-        logger.info(f"Saved {len(unique_urls)} URLs to {output_path}")
-        return True
+        # Safety checks on returned URLs
+        if not urls:
+            logger.warning(f"{crawler_name} crawler returned no URLs")
+            return 0
+            
+        if not isinstance(urls, (list, set)):
+            logger.error(f"{crawler_name} returned invalid URL type: {type(urls)}")
+            return 0
+        
+        # Add URLs to URL manager
+        url_count = len(urls)
+        added = url_manager.add_urls(category, urls)
+        logger.info(f"Found {url_count} URLs, added {added} new unique URLs for {category}")
+        
+        return added
+        
+    except Exception as e:
+        logger.error(f"Error running {crawler_name} crawler for {category}: {str(e)}")
+        return 0
 
-# Define a mapping of domain patterns to crawler modules
-DOMAIN_TO_CRAWLER = {
-    "btv.com.kh": "BTV_crawler",
-    "rfa.org": "rfanews_crawler",
-    "postkhmer.com": "postkhmer_crawler",
-    "dap-news.com": "Dapnews_crawler",
-    "kohsantepheapdaily.com.kh": "kohsantepheapdaily_crawler",
-    "news.sabay.com.kh": "sabaynews_crawler"
-}
+def get_available_crawlers():
+    """Get list of available crawler modules."""
+    crawler_dir = os.path.join(project_root, "src", "crawlers", "Urls_Crawler")
+    crawlers = []
+    for file in os.listdir(crawler_dir):
+        if file.endswith("_crawler.py"):
+            crawler_name = file.replace("_crawler.py", "").lower()
+            crawlers.append(crawler_name)
+    return sorted(crawlers)
 
-def parse_arguments():
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="Master crawler controller for multiple websites")
-    parser.add_argument("--urls-per-category", type=int, default=2500,
-                        help="Target number of URLs per category (default: 2500)")
-    parser.add_argument("--max-workers", type=int, default=3,
-                        help="Maximum number of concurrent crawlers (default: 3)")
-    parser.add_argument("--categories-file", type=str, default="config/categories.json",
-                        help="Path to categories.json file (default: categories.json)")
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Run all crawlers to collect URLs")
     parser.add_argument("--output-dir", type=str, default="output/urls",
-                        help="Directory for storing output files (default: Selected_URLs)")
-    parser.add_argument("--randomize", action="store_true", default=True,
-                        help="Randomize URLs across sources (default: True)")
-    parser.add_argument("--resume", action="store_true",
-                        help="Resume from previous crawl (keeps existing URLs)")
-    parser.add_argument("--min-urls-per-source", type=int, default=50,
-                        help="Minimum URLs to try extracting from each source (default: 50)")
+                        help="Directory to save URLs (default: output/urls)")
+    parser.add_argument("--max-workers", type=int, default=6,
+                        help="Maximum number of concurrent crawlers (default: 6)")
+    parser.add_argument("--max-clicks", type=int, default=-1,
+                        help="Maximum clicks for pagination (-1 for unlimited)")
+    parser.add_argument("--max-scrolls", type=int, default=-1,
+                        help="Maximum scrolls for pagination (-1 for unlimited)")
+    parser.add_argument("--max-pages", type=int, default=-1,
+                        help="Maximum pages for pagination (-1 for unlimited)")
+    parser.add_argument("--crawlers", type=str, nargs="+",
+                        help="Specific crawlers to run (default: all)")
+    parser.add_argument("--categories", type=str, nargs="+",
+                        help="Specific categories to crawl (default: all)")
     return parser.parse_args()
 
-def load_categories(categories_file: str) -> Dict[str, List[str]]:
-    """
-    Load categories and their URLs from the specified JSON file.
+def main():
+    """Main function to run all crawlers."""
+    args = parse_args()
     
-    Args:
-        categories_file: Path to the categories JSON file
-        
-    Returns:
-        Dictionary mapping category names to lists of URLs
-    """
-    try:
-        with open(categories_file, "r", encoding="utf-8") as f:
-            categories = json.load(f)
-            
-        # Log information about each category and its URLs
-        for category, urls in categories.items():
-            logger.info(f"Category '{category}': {len(urls)} URLs")
-            for url in urls[:3]:  # Log the first 3 URLs of each category
-                logger.info(f"  - {url}")
-            if len(urls) > 3:
-                logger.info(f"  - ... and {len(urls) - 3} more URLs")
-                
-        return categories
-    except (json.JSONDecodeError, FileNotFoundError) as e:
-        logger.error(f"Error loading categories file '{categories_file}': {e}")
-        return {}
-
-def get_crawler_for_url(url: str) -> Optional[str]:
-    """
-    Determine the appropriate crawler module for a given URL.
-    
-    Args:
-        url: URL to be crawled
-        
-    Returns:
-        Name of the crawler module or None if no match
-    """
-    try:
-        domain = urlparse(url).netloc.lower()
-        for pattern, crawler in DOMAIN_TO_CRAWLER.items():
-            if pattern in domain:
-                return crawler
-    except Exception as e:
-        logger.error(f"Error determining crawler for URL '{url}': {e}")
-    return None
-
-def crawl_url(url: str, category: str, output_dir: str, min_urls_per_source: int = 50) -> Set[str]:
-    """
-    Crawl a specific URL using the appropriate crawler.
-    
-    Args:
-        url: URL to crawl
-        category: Category of the URL
-        output_dir: Directory for temporary output files
-        min_urls_per_source: Minimum URLs to extract from this source
-        
-    Returns:
-        Set of article URLs found
-    """
-    crawler_name = get_crawler_for_url(url)
-    if not crawler_name:
-        logger.warning(f"No suitable crawler found for URL: {url}")
-        return set()
-    
-    logger.info(f"Using {crawler_name} to crawl {url} (category: {category})")
-    
-    # Temporary output directory for this crawl
-    temp_dir = os.path.join(output_dir, f"{int(time.time())}_{crawler_name}")
-    os.makedirs(temp_dir, exist_ok=True)
-    
-    try:
-        # Try to import the crawler module
-        if os.path.exists(os.path.join(CRAWLERS_DIR, f"{crawler_name}.py")):
-            sys.path.insert(0, os.path.dirname(CRAWLERS_DIR))  # Add parent directory to path
-            crawler_module = importlib.import_module(f"crawlers.Urls_Crawler.{crawler_name}")
-            
-            # Remove file handlers for postkhmer_crawler to prevent log file creation
-            if crawler_name == "postkhmer_crawler" and hasattr(crawler_module, "logger"):
-                # Keep only non-file handlers
-                crawler_module.logger.handlers = [h for h in crawler_module.logger.handlers 
-                                                 if not isinstance(h, logging.FileHandler)]
-                logger.info("Disabled file logging for postkhmer_crawler")
-            
-            # Different crawlers have different APIs, so we'll need to adapt
-            collected_urls = set()
-            
-            if crawler_name == "postkhmer_crawler":
-                # PostKhmer crawler has a specific function signature
-                driver = setup_chrome_driver(headless=True, disable_images=True)
-                try:
-                    logger.info(f"Navigating to URL: {url}")
-                    driver.get(url)
-                    time.sleep(5)
-                    output_file = os.path.join(temp_dir, f"{category}_urls.txt")
-                    logger.info(f"Executing scrape_page_content for {url}")
-                    crawler_module.scrape_page_content(driver, url, output_file)
-                    logger.info(f"Completed scraping content from {url}")
-                finally:
-                    driver.quit()
-                
-            elif crawler_name == "rfanews_crawler":
-                # RFA crawler has a scrape_urls function
-                logger.info(f"Starting RFA crawler for {url} with target of {min_urls_per_source} URLs")
-                # Fix for RFA crawler - need to handle lack of separate load_progress function
-                # by setting up a progress dict manually
-                try:
-                    category_path = urlparse(url).path.split('/')[-2]  # Extract category from path
-                    progress = {
-                        "current_url": url,
-                        "unique_urls": [],
-                        "pages_scraped": 0
-                    }
-                    # Monkey patch the crawler's load_progress function
-                    crawler_module.load_progress = lambda x: progress
-                    
-                    result = crawler_module.scrape_urls(url, max_urls=min_urls_per_source*2, retry_count=2)
-                    output_file = os.path.join(temp_dir, f"{category}_urls.json")
-                    save_urls_to_file(result, output_file)
-                    collected_urls.update(result)
-                except Exception as e:
-                    logger.error(f"Error with RFA crawler: {e}")
-                
-            elif crawler_name == "kohsantepheapdaily_crawler":
-                # Kohsantepheap crawler - Working with the actual function name
-                shared_links = set()
-                lock = threading.Lock()
-                logger.info(f"Starting kohsantepheapdaily crawler for {url}")
-                
-                # Check if the function name is crawl_url or fetch_and_save_links
-                if hasattr(crawler_module, "crawl_url"):
-                    crawler_module.crawl_url(url, shared_links, lock, category)
-                elif hasattr(crawler_module, "fetch_and_save_links"):
-                    driver = setup_chrome_driver(headless=True, disable_images=True)
-                    try:
-                        links = crawler_module.fetch_and_save_links(driver, url, category)
-                        shared_links.update(links)
-                    finally:
-                        driver.quit()
-                    
-                output_file = os.path.join(temp_dir, f"{category}_urls.json")
-                save_urls_to_file(shared_links, output_file)
-                collected_urls.update(shared_links)
-                
-            elif crawler_name == "Dapnews_crawler":
-                # Dapnews crawler - Fix import and function call issues
-                driver = setup_chrome_driver(headless=True, disable_images=True)
-                try:
-                    logger.info(f"Starting Dapnews crawler for {url}")
-                    from bs4 import BeautifulSoup  # Ensure BeautifulSoup is available
-                    html = crawler_module.fetch_page_with_scroll(driver, url)
-                    soup = BeautifulSoup(html, "html.parser")
-                    links = crawler_module.parse_links(soup, url)
-                    output_file = os.path.join(temp_dir, f"{category}_urls.json")
-                    save_urls_to_file(links, output_file)
-                    collected_urls.update(links)
-                finally:
-                    driver.quit()
-                
-            elif crawler_name == "sabaynews_crawler":
-                logger.info(f"Starting sabaynews crawler for {url}")
-                class ConfigMock:
-                    chrome_driver_path = None
-                    wait_time = 2
-                    max_workers = 1
-                
-                # Create output directory
-                temp_cat_dir = os.path.join(temp_dir, category)
-                os.makedirs(temp_cat_dir, exist_ok=True)
-                
-                # Adjust URL format for Sabay
-                if "topics" in url:
-                    topic = url.split("/")[-1].rstrip('/')
-                    ajax_url = f"https://news.sabay.com.kh/ajax/topics/{topic}"
-                    logger.info(f"Adjusted Sabay URL to: {ajax_url}")
-                    result = crawler_module.scrape_category(ajax_url, os.path.join(temp_cat_dir, category), ConfigMock())
-                else:
-                    result = crawler_module.scrape_category(url, os.path.join(temp_cat_dir, category), ConfigMock())
-                
-                # Extract URLs directly from result
-                if result and "urls" in result:
-                    collected_urls.update(result["urls"])
-                    logger.info(f"Collected {len(result['urls'])} URLs directly from Sabay crawler")
-                elif result and "json_file" in result and os.path.exists(result["json_file"]):
-                    try:
-                        with open(result["json_file"], "r", encoding="utf-8") as f:
-                            urls_list = json.load(f)
-                            collected_urls.update(urls_list)
-                            logger.info(f"Loaded {len(urls_list)} URLs from Sabay result file")
-                    except Exception as e:
-                        logger.error(f"Error loading Sabay result file: {e}")
-                
-            elif crawler_name == "BTV_crawler":
-                # BTV crawler
-                shared_links = set()
-                lock = threading.Lock()
-                
-                # For BTV we'll crawl multiple pages to get enough articles
-                logger.info(f"Starting BTV crawler for {url}")
-                num_pages_to_crawl = max(5, min_urls_per_source // 10)  # Each page has ~10 articles
-                
-                for page_idx in range(1, num_pages_to_crawl + 1):
-                    logger.info(f"Crawling BTV page {page_idx}/{num_pages_to_crawl}")
-                    try:
-                        crawler_module.crawl_page(url, page_idx, shared_links, lock, category)
-                    except Exception as page_error:
-                        logger.error(f"Error crawling page {page_idx}: {page_error}")
-                    
-                    # Check if we have enough URLs already
-                    if len(shared_links) >= min_urls_per_source:
-                        logger.info(f"Collected enough URLs from BTV: {len(shared_links)}")
-                        break
-                        
-                output_file = os.path.join(temp_dir, f"{category}_urls.json")
-                save_urls_to_file(shared_links, output_file)
-                collected_urls.update(shared_links)
-                
-                # If we didn't get enough URLs, try deep crawling more pages
-                if len(shared_links) < min_urls_per_source:
-                    logger.info(f"Not enough URLs collected from {url}. Attempting deep crawl.")
-                    additional_pages_to_crawl = 10
-                    for page_idx in range(num_pages_to_crawl + 1, num_pages_to_crawl + additional_pages_to_crawl + 1):
-                        logger.info(f"Deep crawling BTV page {page_idx}")
-                        try:
-                            crawler_module.crawl_page(url, page_idx, shared_links, lock, category)
-                        except Exception as page_error:
-                            logger.error(f"Error in deep crawl of page {page_idx}: {page_error}")
-                        
-                        # Check if we have enough URLs now
-                        if len(shared_links) >= min_urls_per_source:
-                            logger.info(f"Deep crawl: Collected enough URLs: {len(shared_links)}")
-                            break
-                            
-                    # Update output file with additional URLs
-                    save_urls_to_file(shared_links, output_file)
-                    collected_urls.update(shared_links)
-                
-            else:
-                # Generic approach using the main function
-                logger.info(f"Using generic approach for {crawler_name} with {url}")
-                original_argv = sys.argv.copy()
-                sys.argv = [crawler_name, url, "--output-dir", temp_dir, "--category", category]
-                try:
-                    if hasattr(crawler_module, "main"):
-                        crawler_module.main()
-                    else:
-                        logger.error(f"No main() function found in {crawler_name}")
-                finally:
-                    sys.argv = original_argv
-            
-            # If we still don't have collected URLs, try finding them from the temp directory
-            if not collected_urls:
-                collected_urls = collect_urls_from_dir(temp_dir, category)
-                
-            logger.info(f"Collected {len(collected_urls)} URLs from {url}")
-            return collected_urls
-            
-        else:
-            logger.error(f"Crawler module {crawler_name}.py not found!")
-            return set()
-            
-    except Exception as e:
-        logger.error(f"Error while crawling {url} with {crawler_name}: {e}", exc_info=True)
-        return set()
-
-def collect_urls_from_dir(directory: str, category: str = None) -> Set[str]:
-    """
-    Collect URLs from all files in a directory.
-    
-    Args:
-        directory: Directory containing URL files
-        category: Optional category filter
-        
-    Returns:
-        Set of collected URLs
-    """
-    all_urls = set()
-    
-    if not os.path.exists(directory):
-        return all_urls
-        
-    for root, _, files in os.walk(directory):
-        for file in files:
-            # Only process JSON and TXT files
-            if not (file.endswith(".json") or file.endswith(".txt")):
-                continue
-                
-            # If category filter is provided, only process matching files
-            if category and category not in file:
-                continue
-                
-            file_path = os.path.join(root, file)
-            try:
-                if file.endswith(".json"):
-                    with open(file_path, "r", encoding="utf-8") as f:
-                        urls = json.load(f)
-                        # Handle both list and dictionary formats
-                        if isinstance(urls, dict) and "unique_urls" in urls:
-                            urls = urls["unique_urls"]
-                        all_urls.update(url for url in urls if url)
-                elif file.endswith(".txt"):
-                    with open(file_path, "r", encoding="utf-8") as f:
-                        all_urls.update(line.strip() for line in f if line.strip())
-            except Exception as e:
-                logger.warning(f"Error reading URLs from {file_path}: {e}")
-                
-    return all_urls
-
-def filter_article_urls(urls: List[str], domain: str) -> List[str]:
-    """
-    Filter URLs to ensure they are article URLs.
-    
-    Args:
-        urls: List of URLs to filter
-        domain: Domain of the website
-        
-    Returns:
-        Filtered list of article URLs
-    """
-    filtered = []
-    
-    # Domain-specific filtering rules
-    domain_patterns = {
-        "btv.com.kh": "/article/",
-        "rfa.org": ["/news/", ".html"],
-        "postkhmer.com": ["/politics/", "/business/", "/financial/", "/sport/"],
-        "dap-news.com": ["/economic/", "/sport/", "/politic/", "/technology/", "/health/"],
-        "kohsantepheapdaily.com.kh": ["/article/", ".html"],
-        "news.sabay.com.kh": "/article/"
-    }
-    
-    # Get appropriate patterns for this domain
-    patterns = []
-    for key, value in domain_patterns.items():
-        if key in domain:
-            if isinstance(value, list):
-                patterns.extend(value)
-            else:
-                patterns.append(value)
-                
-    # If no specific patterns, use generic filtering
-    if not patterns:
-        # Generic filters to detect article URLs
-        patterns = ["/article/", "/news/", ".html", "/detail/", "/story/"]
-        
-    # Filter URLs
-    for url in urls:
-        # Skip empty or non-string URLs
-        if not url or not isinstance(url, str):
-            continue
-            
-        # Check if URL contains any of the patterns
-        if any(pattern in url for pattern in patterns):
-            filtered.append(url)
-            
-    logger.info(f"Filtered {len(filtered)} article URLs out of {len(urls)} for domain '{domain}'")
-    return filtered
-
-def select_random_urls(urls: List[str], count: int) -> List[str]:
-    """
-    Select random URLs from the list, up to the specified count.
-    
-    Args:
-        urls: List of URLs to select from
-        count: Number of URLs to select
-        
-    Returns:
-        List of randomly selected URLs
-    """
-    if len(urls) <= count:
-        return urls
-    return random.sample(urls, count)
-
-def process_categories(categories: Dict[str, List[str]], args):
-    """
-    Process all categories and their URLs.
-    
-    Args:
-        categories: Dictionary mapping categories to lists of URLs
-        args: Command-line arguments
-    """
-    # Create the output directory
+    # Make sure output directory exists
     os.makedirs(args.output_dir, exist_ok=True)
     
-    # Temporary directory for intermediate results
-    temp_dir = os.path.join(args.output_dir, "temp")
-    os.makedirs(temp_dir, exist_ok=True)
+    # Initialize URL manager for saving results
+    url_manager = URLManager(args.output_dir, "all")
     
-    # Override crawler save functions to use our output directory
-    override_crawler_save_functions(args.output_dir)
+    # Get available crawlers
+    available_crawlers = get_available_crawlers()
+    logger.info(f"Available crawlers: {', '.join(available_crawlers)}")
     
-    # Load any existing URLs if in resume mode
-    category_urls = {category: set() for category in categories}
-    if args.resume:
-        logger.info("Resume mode: Loading existing URLs from output directory")
-        for category in categories:
-            output_file = os.path.join(args.output_dir, f"{category}.json")
-            if os.path.exists(output_file):
-                try:
-                    with open(output_file, "r", encoding="utf-8") as f:
-                        existing_urls = json.load(f)
-                        category_urls[category].update(existing_urls)
-                        logger.info(f"Loaded {len(existing_urls)} existing URLs for {category}")
-                except Exception as e:
-                    logger.error(f"Error loading existing URLs for {category}: {e}")
+    # Filter crawlers if specified
+    crawlers_to_run = args.crawlers if args.crawlers else available_crawlers
+    crawlers_to_run = [c for c in crawlers_to_run if c in available_crawlers]
     
-    # Track crawled URLs to avoid duplicating effort
-    already_crawled = {}
+    # Get available categories
+    available_categories = sorted(url_manager.category_sources.keys())
+    logger.info(f"Available categories: {', '.join(available_categories)}")
     
-    # Process each category
-    for category, urls in categories.items():
-        logger.info(f"Processing category: {category} ({len(urls)} source URLs)")
+    # Filter categories if specified
+    categories_to_process = args.categories if args.categories else available_categories
+    categories_to_process = [c for c in categories_to_process if c in available_categories]
+    
+    # Track overall statistics
+    total_urls_added = 0
+    
+    # Process each crawler and category
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_workers) as executor:
+        futures = []
         
-        # Skip if we already have enough URLs for this category
-        if len(category_urls[category]) >= args.urls_per_category:
-            logger.info(f"Already have {len(category_urls[category])} URLs for {category}, skipping")
-            continue
-            
-        # Randomize URLs if requested to get a better distribution
-        category_source_urls = urls.copy()
-        if args.randomize:
-            random.shuffle(category_source_urls)
+        # Submit crawling jobs
+        for crawler_name in crawlers_to_run:
+            for category in categories_to_process:
+                sources = url_manager.get_sources_for_category(category, crawler_name)
+                if not sources:
+                    logger.warning(f"No sources found for {crawler_name} - {category}")
+                    continue
+                
+                for source_url in sources:
+                    futures.append(
+                        executor.submit(
+                            crawl_with_module,
+                            crawler_name,
+                            category,
+                            source_url,
+                            url_manager,
+                            args
+                        )
+                    )
         
-        # Calculate how many URLs we need from each source to reach our target
-        urls_still_needed = args.urls_per_category - len(category_urls[category])
-        min_urls_per_source = max(args.min_urls_per_source, urls_still_needed // max(1, len(category_source_urls)))
-        logger.info(f"Need {urls_still_needed} more URLs for {category}, aiming for at least {min_urls_per_source} per source")
-        
-        # Process each URL for this category
-        with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_workers) as executor:
-            # Submit crawling tasks for URLs that haven't been crawled yet
-            future_to_url = {}
-            for url in category_source_urls:
-                if url in already_crawled:
-                    logger.info(f"URL already crawled in another category: {url}")
-                    category_urls[category].update(filter_article_urls(list(already_crawled[url]), urlparse(url).netloc))
-                else:
-                    future_to_url[executor.submit(crawl_url, url, category, temp_dir, min_urls_per_source)] = url
-            
-            # Process results as they complete
-            for future in concurrent.futures.as_completed(future_to_url):
-                url = future_to_url[future]
-                try:
-                    article_urls = future.result()
-                    domain = urlparse(url).netloc
-                    filtered_urls = filter_article_urls(list(article_urls), domain)
-                    
-                    # Store the crawled URLs for potential reuse in other categories
-                    already_crawled[url] = set(filtered_urls)
-                    
-                    # Add to our collection for this category
-                    category_urls[category].update(filtered_urls)
-                    
-                    logger.info(f"Added {len(filtered_urls)} article URLs from {url} to {category}. " +
-                                f"Total in category: {len(category_urls[category])}")
-                    
-                    # Save intermediate results
-                    intermediate_file = os.path.join(temp_dir, f"{category}_intermediate.json")
-                    try:
-                        save_urls_to_file(list(category_urls[category]), intermediate_file)
-                        logger.info(f"Saved intermediate results to {intermediate_file}")
-                    except Exception as e:
-                        logger.error(f"Error saving intermediate results: {e}")
-                    
-                    # If we have enough URLs, move on to the next category
-                    if len(category_urls[category]) >= args.urls_per_category:
-                        logger.info(f"Reached target URL count for category {category}. Moving to next category.")
-                        break
-                    
-                except Exception as e:
-                    logger.error(f"Error processing {url} for category {category}: {e}")
+        # Process results as they complete
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                urls_added = future.result()
+                total_urls_added += urls_added
+            except Exception as exc:
+                logger.error(f"Crawler generated an exception: {exc}")
     
-    # Select random URLs up to the target count and save to JSON files
-    for category, urls in category_urls.items():
-        # Convert to list for random selection
-        urls_list = list(urls)
-        
-        # Select random URLs if we have more than the target
-        if len(urls_list) > args.urls_per_category:
-            selected_urls = select_random_urls(urls_list, args.urls_per_category)
-            logger.info(f"Selected {len(selected_urls)} random URLs from {len(urls_list)} available for {category}")
-        else:
-            selected_urls = urls_list
-            logger.info(f"Using all {len(selected_urls)} URLs for {category}")
-        
-        # Save to JSON file
-        output_file = os.path.join(args.output_dir, f"{category}.json")
-        save_urls_to_file(selected_urls, output_file)
-        logger.info(f"Saved {len(selected_urls)} URLs for category {category} to {output_file}")
+    # Save final results
+    results = url_manager.save_final_results()
     
-    # Clean up temporary files if successful
-    try:
-        if os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir)
-            logger.info(f"Cleaned up temporary directory: {temp_dir}")
-    except Exception as e:
-        logger.warning(f"Error cleaning up temporary directory: {e}")
-
-import os
-import sys
-import json
-import logging
-from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Set
-import time
-import random
-
-# Add parent directory to Python path for absolute imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from crawlers.category_handler import CategoryHandler
-
-def main():
-    """Main entry point for the crawler controller."""
-    args = parse_arguments()
+    # Print summary
+    logger.info("="*60)
+    logger.info(f"Crawling completed - Added {total_urls_added} new URLs")
+    for category, count in results.items():
+        logger.info(f"  {category}: {count} URLs")
+    logger.info("="*60)
     
-    # Initialize components
-    components = setup_smart_components(args)
-    
-    # Load categories
-    categories = load_categories(args.categories_file)
-    if not categories:
-        logger.error("No categories found or error loading categories file.")
-        return
-        
-    # Process categories directly
-    process_categories(categories, args)
-    
-    logger.info("Crawling completed successfully")
+    return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

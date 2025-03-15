@@ -104,8 +104,11 @@ def cmd_crawl(args):
     output_dir = os.path.join("output", "urls")
     os.makedirs(output_dir, exist_ok=True)
     
+    # Add support for unlimited crawling with max_clicks, max_scrolls, and max_pages parameters
     return run_command(
-        f"{PYTHON_CMD} {crawler_script} --urls-per-category {args.urls_per_category} --max-workers {args.max_workers} --output-dir {output_dir}",
+        f"{PYTHON_CMD} {crawler_script} --urls-per-category {args.urls_per_category} "
+        f"--max-workers {args.max_workers} --output-dir {output_dir} "
+        f"--max-clicks {args.max_clicks} --max-scrolls {args.max_scrolls} --max-pages {args.max_pages}",
         "Running master crawler to collect URLs"
     )
 
@@ -174,6 +177,13 @@ def main():
                              help="Target URLs per category (default: 2500)")
     crawl_parser.add_argument("--max-workers", type=int, default=3,
                              help="Maximum crawler workers (default: 3)")
+    # Add new parameters for unlimited crawling
+    crawl_parser.add_argument("--max-clicks", type=int, default=-1,
+                            help="Maximum clicks for pagination (-1 for unlimited)")
+    crawl_parser.add_argument("--max-scrolls", type=int, default=-1,
+                            help="Maximum scrolls for pagination (-1 for unlimited)")
+    crawl_parser.add_argument("--max-pages", type=int, default=-1,
+                            help="Maximum pages for pagination (-1 for unlimited)")
     
     # Extract command
     extract_parser = subparsers.add_parser("extract", parents=[common_parser],
@@ -190,8 +200,13 @@ def main():
                            help="Target URLs per category (default: 2500)")
     all_parser.add_argument("--max-workers", type=int, default=3,
                            help="Maximum crawler workers (default: 3)")
-    all_parser.add_argument("--extract-workers", type=int, default=6,
-                           help="Maximum extraction workers (default: 6)")
+    # Add new parameters for unlimited crawling to the "all" command too
+    all_parser.add_argument("--max-clicks", type=int, default=-1,
+                          help="Maximum clicks for pagination (-1 for unlimited)")
+    all_parser.add_argument("--max-scrolls", type=int, default=-1,
+                          help="Maximum scrolls for pagination (-1 for unlimited)")
+    all_parser.add_argument("--max-pages", type=int, default=-1,
+                          help="Maximum pages for pagination (-1 for unlimited)")
     all_parser.add_argument("--reset-checkpoint", action="store_true",
                            help="Reset extraction checkpoint")
     
