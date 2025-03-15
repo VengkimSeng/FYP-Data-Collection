@@ -167,7 +167,8 @@ def main():
             for category in categories_to_process:
                 sources = url_manager.get_sources_for_category(category, crawler_name)
                 if not sources:
-                    logger.warning(f"No sources found for {crawler_name} - {category}")
+                    # Change log level to debug and provide more context
+                    logger.debug(f"No sources found for {crawler_name} - {category} (this is normal if the site doesn't cover this category)")
                     continue
                 
                 for source_url in sources:

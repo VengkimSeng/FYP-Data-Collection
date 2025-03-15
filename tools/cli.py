@@ -104,9 +104,9 @@ def cmd_crawl(args):
     output_dir = os.path.join("output", "urls")
     os.makedirs(output_dir, exist_ok=True)
     
-    # Add support for unlimited crawling with max_clicks, max_scrolls, and max_pages parameters
+    # Remove the unsupported --urls-per-category parameter
     return run_command(
-        f"{PYTHON_CMD} {crawler_script} --urls-per-category {args.urls_per_category} "
+        f"{PYTHON_CMD} {crawler_script} "
         f"--max-workers {args.max_workers} --output-dir {output_dir} "
         f"--max-clicks {args.max_clicks} --max-scrolls {args.max_scrolls} --max-pages {args.max_pages}",
         "Running master crawler to collect URLs"
@@ -121,9 +121,12 @@ def cmd_extract(args):
     # Change input directory from Scrape_urls to output/urls
     input_dir = os.path.join("output", "urls")
     
-    cmd = f"{PYTHON_CMD} {extractor_script} --input-dir {input_dir} --output-dir {args.output_dir} --max-workers {args.extract_workers}"
+    # Get extract_workers from args or use a default value
+    extract_workers = getattr(args, 'extract_workers', 6)
     
-    if args.reset_checkpoint:
+    cmd = f"{PYTHON_CMD} {extractor_script} --input-dir {input_dir} --output-dir {args.output_dir} --max-workers {extract_workers}"
+    
+    if hasattr(args, 'reset_checkpoint') and args.reset_checkpoint:
         cmd += " --reset-checkpoint"
         
     return run_command(cmd, "Extracting article content")
@@ -173,8 +176,6 @@ def main():
     # Crawl command
     crawl_parser = subparsers.add_parser("crawl", parents=[common_parser],
                                         help="Run URL crawler")
-    crawl_parser.add_argument("--urls-per-category", type=int, default=2500,
-                             help="Target URLs per category (default: 2500)")
     crawl_parser.add_argument("--max-workers", type=int, default=3,
                              help="Maximum crawler workers (default: 3)")
     # Add new parameters for unlimited crawling
@@ -196,8 +197,6 @@ def main():
     # All command (complete workflow)
     all_parser = subparsers.add_parser("all", parents=[common_parser],
                                       help="Run complete workflow")
-    all_parser.add_argument("--urls-per-category", type=int, default=2500,
-                           help="Target URLs per category (default: 2500)")
     all_parser.add_argument("--max-workers", type=int, default=3,
                            help="Maximum crawler workers (default: 3)")
     # Add new parameters for unlimited crawling to the "all" command too
@@ -209,6 +208,8 @@ def main():
                           help="Maximum pages for pagination (-1 for unlimited)")
     all_parser.add_argument("--reset-checkpoint", action="store_true",
                            help="Reset extraction checkpoint")
+    all_parser.add_argument("--extract-workers", type=int, default=6,
+                           help="Maximum extraction workers (default: 6)")
     
     args = parser.parse_args()
     
