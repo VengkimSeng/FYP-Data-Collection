@@ -4,6 +4,7 @@ import time
 import json
 import importlib.util
 from typing import Dict, Set, List
+import traceback
 
 # Add project root to path for imports
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -205,71 +206,129 @@ def get_available_categories(url_manager: URLManager) -> List[str]:
     """Get list of available categories."""
     return sorted(url_manager.category_sources.keys())
 
-def main():
-    """Main test function."""
-    # Check if running in production mode
-    is_prod_mode = len(sys.argv) > 1 and sys.argv[1].lower() == "prod"
-    
-    url_manager = URLManager("output/urls", "test")
-    
-    # Show available categories
-    categories = get_available_categories(url_manager)
-    crawlers = get_available_crawlers()
-    
-    print("\nAvailable categories:")
-    print(", ".join(categories))
-    print()
-    
-    # Get category from user
-    category = input("Enter category to test: ").strip().lower()
-    while category not in categories:
-        print(f"Invalid category. Please choose from: {', '.join(categories)}")
-        category = input("Enter category to test: ").strip().lower()
-    
-    if is_prod_mode:
-        # In production mode, run all relevant crawlers for this category
-        logger.info(f"Starting production crawl for category: {category}")
+def process_category(category: str, crawlers: List[str], url_manager: URLManager):
+    """Process a single category with all relevant crawlers."""
+    # Load categories to find relevant crawlers
+    categories_config = load_categories()
+    if not categories_config:
+        logger.error("Failed to load categories configuration")
+        return False
+
+    # Find crawlers that have sources for this category
+    if category in categories_config:
+        category_crawlers = categories_config[category].keys()
+        # Filter by available crawlers
+        relevant_crawlers = [c for c in category_crawlers if c in crawlers]
         
-        # Load categories to find relevant crawlers
-        categories_config = load_categories()
-        if not categories_config:
-            logger.error("Failed to load categories configuration")
-            sys.exit(1)
+        if not relevant_crawlers:
+            logger.error(f"No crawlers found for category: {category}")
+            return False
         
-        # Find crawlers that have sources for this category
-        if category in categories_config:
-            category_crawlers = categories_config[category].keys()
-            # Filter by available crawlers
-            relevant_crawlers = [c for c in category_crawlers if c in crawlers]
+        logger.info(f"Running {len(relevant_crawlers)} crawlers for category '{category}': {', '.join(relevant_crawlers)}")
+        
+        success = True
+        for crawler in relevant_crawlers:
+            logger.info(f"\n{'=' * 50}")
+            logger.info(f"RUNNING {crawler.upper()} CRAWLER FOR {category.upper()}")
+            logger.info(f"{'=' * 50}")
             
-            if not relevant_crawlers:
-                logger.error(f"No crawlers found for category: {category}")
-                sys.exit(1)
-            
-            logger.info(f"Running {len(relevant_crawlers)} crawlers for category '{category}': {', '.join(relevant_crawlers)}")
-            
-            success = True
-            for crawler in relevant_crawlers:
-                logger.info(f"\n{'=' * 50}")
-                logger.info(f"RUNNING {crawler.upper()} CRAWLER FOR {category.upper()}")
-                logger.info(f"{'=' * 50}")
+            try:
                 crawler_success = test_crawler(crawler, category, max_urls=-1)  # -1 means unlimited
                 if not crawler_success:
                     logger.warning(f"Crawler {crawler} failed for category {category}")
                     success = False
                 else:
                     logger.info(f"Crawler {crawler} completed successfully for category {category}")
+            except Exception as e:
+                logger.error(f"Exception in {crawler} crawler for {category}: {str(e)}")
+                logger.error(traceback.format_exc())
+                success = False
+                # Continue with next crawler despite errors
+        
+        logger.info(f"\n{'=' * 50}")
+        logger.info(f"CATEGORY {category.upper()} COMPLETED")
+        logger.info(f"Status: {'SUCCESS' if success else 'PARTIAL FAILURE'}")
+        logger.info(f"{'=' * 50}")
+        return success
+    else:
+        logger.error(f"Category not found in configuration: {category}")
+        return False
+
+def main():
+    """Main test function."""
+    # Configure process to run in background if needed
+    if "--daemon" in sys.argv:
+        # Redirect output to log file when running as daemon
+        log_file = "crawler_test.log"
+        if "--log" in sys.argv:
+            try:
+                log_index = sys.argv.index("--log")
+                if log_index + 1 < len(sys.argv):
+                    log_file = sys.argv[log_index + 1]
+            except ValueError:
+                pass
+        
+        # Redirect stdout and stderr to the log file
+        sys.stdout = open(log_file, 'a')
+        sys.stderr = sys.stdout
+        
+        logger.info(f"Running in daemon mode, output redirected to {log_file}")
+    
+    # Check if running in production mode
+    is_prod_mode = len(sys.argv) > 1 and sys.argv[1].lower() == "prod"
+    
+    url_manager = URLManager("output/urls", "test")
+    
+    # Get available categories and crawlers
+    categories = get_available_categories(url_manager)
+    crawlers = get_available_crawlers()
+    
+    logger.info(f"Available categories: {', '.join(categories)}")
+    logger.info(f"Available crawlers: {', '.join(crawlers)}")
+    
+    if is_prod_mode:
+        # Check if a specific category was provided as an argument
+        specified_category = None
+        if len(sys.argv) > 2 and sys.argv[2].lower() != "--daemon" and sys.argv[2].lower() != "--log":
+            specified_category = sys.argv[2].lower()
+            if specified_category not in categories:
+                logger.error(f"Invalid category: {specified_category}")
+                sys.exit(1)
             
-            logger.info(f"\n{'=' * 50}")
-            logger.info(f"PRODUCTION CRAWL FOR {category.upper()} COMPLETED")
-            logger.info(f"Overall status: {'SUCCESS' if success else 'FAILURE'}")
-            logger.info(f"{'=' * 50}")
+            logger.info(f"Running production crawl for specified category: {specified_category}")
+            success = process_category(specified_category, crawlers, url_manager)
             sys.exit(0 if success else 1)
         else:
-            logger.error(f"Category not found in configuration: {category}")
-            sys.exit(1)
+            # Run all categories in sequence
+            logger.info("Running production crawl for ALL categories")
+            overall_success = True
+            
+            for category in categories:
+                logger.info(f"\n{'#' * 60}")
+                logger.info(f"STARTING CATEGORY: {category.upper()}")
+                logger.info(f"{'#' * 60}")
+                
+                category_success = process_category(category, crawlers, url_manager)
+                if not category_success:
+                    overall_success = False
+            
+            logger.info(f"\n{'#' * 60}")
+            logger.info(f"ALL CATEGORIES COMPLETED")
+            logger.info(f"Overall status: {'SUCCESS' if overall_success else 'PARTIAL FAILURE'}")
+            logger.info(f"{'#' * 60}")
+            sys.exit(0 if overall_success else 1)
     else:
-        # In test mode, only run one crawler as specified by user
+        # In test mode, show options and get input
+        print("\nAvailable categories:")
+        print(", ".join(categories))
+        print()
+        
+        # Get category from user
+        category = input("Enter category to test: ").strip().lower()
+        while category not in categories:
+            print(f"Invalid category. Please choose from: {', '.join(categories)}")
+            category = input("Enter category to test: ").strip().lower()
+        
         print("\nAvailable crawlers:")
         print(", ".join(crawlers))
         print()
