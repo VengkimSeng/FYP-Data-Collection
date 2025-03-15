@@ -30,39 +30,32 @@ class URLManager:
             return 0
 
         output_file = os.path.join(self.output_dir, f"{category}.json")
-        existing_data = {
-            "category": category,
-            "sources": self.category_sources.get(category, {}),
-            "crawler": self.crawler_name,
-            "urls": []
-        }
+        existing_urls = []
 
         # Load existing data if file exists
         if os.path.exists(output_file):
             try:
                 with open(output_file, 'r', encoding='utf-8') as f:
-                    existing_data = json.load(f)
+                    existing_urls = json.load(f)
             except json.JSONDecodeError:
                 logger.warning(f"Could not parse existing URLs from {output_file}")
             except Exception as e:
                 logger.error(f"Error reading {output_file}: {e}")
 
-        # Convert existing URLs to set for deduplication
-        existing_urls = set(existing_data["urls"])
+        # Convert to sets for deduplication
+        existing_urls_set = set(existing_urls)
+        new_urls_set = set(urls)
         
-        # Add new URLs
-        all_urls = existing_urls.union(urls)
+        # Combine URLs and sort for consistent output
+        all_urls = sorted(list(existing_urls_set | new_urls_set))
         
-        # Update data structure
-        existing_data["urls"] = sorted(list(all_urls))
-        
-        # Save updated data
+        # Save updated URLs as a simple list
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
         with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(existing_data, f, indent=2, ensure_ascii=False)
+            json.dump(all_urls, f, indent=2, ensure_ascii=False)
 
         # Return number of new URLs added
-        return len(all_urls) - len(existing_urls)
+        return len(all_urls) - len(existing_urls_set)
 
     def get_sources_for_category(self, category: str, source: str = None) -> List[str]:
         """Get source URLs for a category, optionally filtered by source name."""
@@ -120,18 +113,14 @@ class URLManager:
             return []
 
     def _save_category(self, category: str) -> None:
-        """Save category URLs to file with source information."""
+        """Save category URLs to file with simple list format."""
         output_file = os.path.join(self.output_dir, f"{category}.json")
         try:
-            url_data = {
-                "category": category,
-                "sources": self.category_sources.get(category, {}),
-                "crawler": self.crawler_name,
-                "urls": sorted(list(self.category_urls.get(category, set())))
-            }
+            # Save as a simple sorted list
+            urls_list = sorted(list(self.category_urls.get(category, set())))
             with open(output_file, "w", encoding="utf-8") as f:
-                json.dump(url_data, f, ensure_ascii=False, indent=2)
-            logger.info(f"Saved {len(self.category_urls.get(category, set()))} URLs to {output_file}")
+                json.dump(urls_list, f, ensure_ascii=False, indent=2)
+            logger.info(f"Saved {len(urls_list)} URLs to {output_file}")
         except Exception as e:
             logger.error(f"Error saving to {output_file}: {e}")
 

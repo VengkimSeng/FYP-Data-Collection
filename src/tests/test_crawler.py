@@ -53,76 +53,8 @@ def import_crawler_module(crawler_name: str):
         logger.error(f"Failed to import {crawler_name} module: {e}")
         return None
 
-def test_rfa_crawler(source_url: str, category: str) -> bool:
-    """Specialized function for testing RFA news crawler."""
-    try:
-        logger.info(f"Testing RFA crawler for {category} at {source_url}")
-        
-        # Initialize URL manager with absolute path
-        output_dir = os.path.abspath("output/test_urls")
-        url_manager = URLManager(output_dir, "rfanews")
-        
-        # Import the crawler module
-        crawler_module = import_crawler_module("rfanews")
-        if not crawler_module:
-            logger.error("Failed to import RFA crawler module")
-            return False
-        
-        # Crawl for URLs with direct approach
-        urls = crawler_module.crawl_category(source_url, category, max_clicks=2)
-        
-        # Safety checks on returned URLs
-        if not urls:
-            logger.warning("RFA crawler returned no URLs")
-            return False
-            
-        if not isinstance(urls, (list, set)):
-            logger.error(f"RFA crawler returned invalid URL type: {type(urls)}")
-            return False
-            
-        # Convert to set for deduplication
-        urls = set(urls)
-        
-        # Save URLs directly to JSON file to avoid URLManager issues
-        output_file = os.path.join(output_dir, f"{category}.json")
-        try:
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump(list(urls), f, ensure_ascii=False, indent=2)
-            logger.info(f"Saved {len(urls)} URLs to {output_file}")
-            return True
-        except Exception as e:
-            logger.error(f"Error saving URLs to file: {e}")
-            return False
-            
-    except Exception as e:
-        logger.error(f"Error in RFA crawler test: {str(e)}")
-        return False
-
 def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
     """Test a specific crawler for a category."""
-    logger.info(f"Testing {crawler_name} crawler for {category}")
-    
-    # Special handling for RFA crawler
-    if crawler_name.lower() == "rfanews":
-        # Get source URLs for RFA
-        output_dir = os.path.abspath("output/test_urls")
-        url_manager = URLManager(output_dir, crawler_name)
-        sources = url_manager.get_sources_for_category(category, crawler_name)
-        
-        if not sources:
-            logger.error(f"No source URLs found for {crawler_name} - {category}")
-            return False
-            
-        # Test each source URL
-        success = False
-        for source_url in sources:
-            if test_rfa_crawler(source_url, category):
-                success = True
-                break
-                
-        return success
-
-    # Regular crawler testing for non-RFA crawlers
     logger.info(f"Testing {crawler_name} crawler for {category}")
     
     # Initialize URL manager for testing with absolute path
@@ -135,7 +67,7 @@ def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
     if not sources:
         logger.error(f"No source URLs found for {crawler_name} - {category}")
         return False
-        
+    
     # Import the crawler module
     crawler_module = import_crawler_module(crawler_name)
     if not crawler_module:
@@ -144,6 +76,7 @@ def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
     
     start_time = time.time()
     urls_collected = 0
+    success = False
     
     try:
         for source_url in sources:
@@ -151,30 +84,61 @@ def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
             
             if hasattr(crawler_module, 'crawl_category'):
                 try:
+                    # Call crawl_category with appropriate parameters based on crawler type
+                    urls = None
                     if crawler_name == "rfanews":
                         urls = crawler_module.crawl_category(source_url, category, max_clicks=2)
-                        if isinstance(urls, (list, set)):
-                            urls = set(urls)
-                        else:
-                            logger.error(f"Crawler returned invalid type: {type(urls)}")
-                            continue
-                    elif crawler_name == "kohsantepheapdaily":
-                        urls = crawler_module.crawl_category(source_url, category, max_scroll=10)
-                    elif crawler_name == "dapnews":
-                        urls = crawler_module.crawl_category(source_url, category, max_pages=2)
                     elif crawler_name == "postkhmer":
                         urls = crawler_module.crawl_category(source_url, category, max_click=2)
+                    elif crawler_name == "kohsantepheapdaily":
+                        urls = crawler_module.crawl_category(source_url, category, max_scroll=5)
+                    elif crawler_name == "dapnews":
+                        urls = crawler_module.crawl_category(source_url, category, max_pages=2)
                     elif crawler_name == "sabaynews":
                         urls = crawler_module.crawl_category(source_url, category, max_pages=2)
                     else:
                         urls = crawler_module.crawl_category(source_url, category, max_pages=2)
                     
-                    if urls:
-                        # Add URLs to url_manager
-                        added = url_manager.add_urls(category, urls)
-                        urls_collected += len(urls)
-                        logger.info(f"Found {len(urls)} URLs, added {added} new unique URLs")
-                        url_manager.save_final_results()
+                    # Safety checks on returned URLs
+                    if not urls:
+                        logger.warning(f"{crawler_name} crawler returned no URLs")
+                        continue
+                        
+                    if not isinstance(urls, (list, set)):
+                        logger.error(f"{crawler_name} returned invalid URL type: {type(urls)}")
+                        continue
+                    
+                    # Convert to set for deduplication
+                    new_urls = set(urls)
+                    
+                    # Load existing URLs if file exists - using simple list format JSON
+                    output_file = os.path.join(output_dir, f"{category}.json")
+                    existing_urls = []
+                    
+                    if os.path.exists(output_file):
+                        try:
+                            with open(output_file, 'r', encoding='utf-8') as f:
+                                existing_urls = json.load(f)
+                        except Exception as e:
+                            logger.error(f"Error loading existing URLs: {e}")
+                    
+                    # Combine existing and new URLs using sets for deduplication
+                    combined_urls = list(set(existing_urls) | new_urls)
+                    
+                    # Save updated URL list
+                    try:
+                        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+                        with open(output_file, 'w', encoding='utf-8') as f:
+                            json.dump(combined_urls, f, ensure_ascii=False, indent=2)
+                        
+                        # Track number of new URLs added
+                        added_urls = len(combined_urls) - len(existing_urls)
+                        urls_collected += added_urls
+                        logger.info(f"Found {len(new_urls)} URLs, added {added_urls} new unique URLs")
+                        logger.info(f"Saved {len(combined_urls)} URLs to {output_file}")
+                        success = True
+                    except Exception as e:
+                        logger.error(f"Error saving URLs to file: {e}")
                     
                 except Exception as e:
                     logger.error(f"Error during crawl_category: {str(e)}")
@@ -194,7 +158,7 @@ def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
     logger.info(f"\nTest completed in {duration:.2f} seconds")
     logger.info(f"URLs collected: {urls_collected}")
     
-    return urls_collected > 0
+    return success
 
 def load_test_config() -> Dict:
     """Load test configuration from sources.json."""
