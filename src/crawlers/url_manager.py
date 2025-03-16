@@ -54,6 +54,11 @@ class URLManager:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(all_urls, f, indent=2, ensure_ascii=False)
 
+        # Track the URLs in memory as well (for the final save if needed)
+        if category not in self.category_urls:
+            self.category_urls[category] = set()
+        self.category_urls[category].update(new_urls_set)
+
         # Return number of new URLs added
         return len(all_urls) - len(existing_urls_set)
 
@@ -149,6 +154,11 @@ class URLManager:
             logger.info(f"Saved {len(urls_list)} URLs to {output_file}")
         except Exception as e:
             logger.error(f"Error saving to {output_file}: {e}")
+
+    def save_to_file(self, category: str) -> None:
+        """Public method to save a specific category to file."""
+        logger.info(f"Saving category '{category}' to file")
+        self._save_category(category)
 
     def save_final_results(self) -> Dict[str, int]:
         """Save all categories one final time."""

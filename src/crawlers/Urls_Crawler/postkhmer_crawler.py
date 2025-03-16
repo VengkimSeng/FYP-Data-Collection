@@ -180,7 +180,7 @@ def extract_article_urls(soup, base_url):
     
     return urls
 
-def scrape_page_content(driver, base_url, category, max_click=-1) -> Set[str]:
+def scrape_page_content(driver, base_url, category, max_click=-1, url_manager=None) -> Set[str]:
     """
     Scrape URLs from the page and return them.
     
@@ -189,6 +189,7 @@ def scrape_page_content(driver, base_url, category, max_click=-1) -> Set[str]:
         base_url: Base URL of the page
         category: Category being scraped
         max_click: Maximum number of load more clicks (-1 for unlimited clicking)
+        url_manager: URLManager instance for saving URLs incrementally
     """
     visited_urls = set()
     click_attempts = 0
@@ -204,6 +205,14 @@ def scrape_page_content(driver, base_url, category, max_click=-1) -> Set[str]:
     
     logger.info(f"Initial page: Found {len(initial_urls)} URLs")
     
+    # Save initial URLs immediately
+    if initial_urls and url_manager:
+        filtered_urls = filter_postkhmer_urls(list(initial_urls))
+        if filtered_urls:
+            added = url_manager.add_urls(category, filtered_urls)
+            logger.info(f"Added {added} filtered URLs from initial page")
+            url_manager.save_to_file(category)  # Force save to file immediately
+    
     while (max_click == -1 or click_attempts < max_click) and consecutive_failures < max_consecutive_failures and consecutive_no_new_urls < max_consecutive_no_new:
         if scroll_and_click(driver, category):
             soup = BeautifulSoup(driver.page_source, "html.parser")
@@ -218,6 +227,14 @@ def scrape_page_content(driver, base_url, category, max_click=-1) -> Set[str]:
                 consecutive_failures = 0
                 consecutive_no_new_urls = 0
                 logger.info(f"Found {new_unique_count} new unique URLs")
+                
+                # Save new URLs immediately
+                if new_urls and url_manager:
+                    filtered_urls = filter_postkhmer_urls(list(new_urls))
+                    if filtered_urls:
+                        added = url_manager.add_urls(category, filtered_urls)
+                        logger.info(f"Added {added} filtered URLs from click {click_attempts+1}")
+                        url_manager.save_to_file(category)  # Force save to file immediately
             else:
                 consecutive_no_new_urls += 1
                 logger.warning(f"No new URLs found (attempt {consecutive_no_new_urls}/{max_consecutive_no_new})")
@@ -233,7 +250,7 @@ def scrape_page_content(driver, base_url, category, max_click=-1) -> Set[str]:
     
     return visited_urls
 
-def crawl_category(url: str, category: str, max_click: int = -1) -> set:
+def crawl_category(url: str, category: str, max_click: int = -1, url_manager=None) -> set:
     """
     Crawl a single category page.
     
@@ -241,6 +258,7 @@ def crawl_category(url: str, category: str, max_click: int = -1) -> set:
         url: URL to crawl
         category: Category name
         max_click: Maximum number of load more clicks (-1 for unlimited clicking)
+        url_manager: URLManager instance for saving URLs
     
     Returns:
         Set of collected URLs
@@ -251,7 +269,7 @@ def crawl_category(url: str, category: str, max_click: int = -1) -> set:
         driver.get(url)
         time.sleep(5)  # Initial load
         
-        urls = scrape_page_content(driver, url, category, max_click=max_click)
+        urls = scrape_page_content(driver, url, category, max_click=max_click, url_manager=url_manager)
         filtered_urls = filter_postkhmer_urls(list(urls))
         logger.info(f"Total unique URLs after filtering: {len(filtered_urls)}")
         return filtered_urls
@@ -312,26 +330,17 @@ def main():
     url_manager = URLManager("output/urls", "postkhmer")
     
     try:
-        driver = setup_selenium()
         # Process categories that have PostKhmer sources
         for category in url_manager.category_sources:
             sources = url_manager.get_sources_for_category(category, "postkhmer")
             if sources:
                 for url in sources:
                     logger.info(f"Scraping category: {url}")
-                    driver.get(url)
-                    time.sleep(5)
-                    
-                    urls = scrape_page_content(driver, url, category)
-                    filtered_urls = filter_postkhmer_urls(list(urls))
-                    
-                    added = url_manager.add_urls(category, filtered_urls)
-                    logger.info(f"Added {added} filtered URLs from {url}")
+                    # Pass url_manager to crawl_category function
+                    urls = crawl_category(url, category, url_manager=url_manager)
+                    logger.info(f"Completed scraping for {url}, found {len(urls)} total URLs")
     finally:
-        if 'driver' in locals():
-            driver.quit()
-        
-        # Save final results
+        # Save final results (this is redundant but kept for safety)
         results = url_manager.save_final_results()
         logger.info(f"Total URLs saved: {sum(results.values())}")
 

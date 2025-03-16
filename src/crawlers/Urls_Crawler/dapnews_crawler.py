@@ -106,6 +106,10 @@ def crawl_category(source_url: str, category: str, url_manager=None, max_pages: 
         random_user_agent=True
     )
     
+    # Create URL manager if not provided
+    if url_manager is None:
+        url_manager = URLManager("output/urls", "dapnews")
+    
     try:
         # First try the main category page
         logger.info(f"Crawling main page for {category}: {source_url}")
@@ -115,9 +119,9 @@ def crawl_category(source_url: str, category: str, url_manager=None, max_pages: 
         main_urls = extract_urls(driver.page_source, source_url, category)
         if main_urls:
             all_urls.update(main_urls)
-            if url_manager:
-                added = url_manager.add_urls(category, main_urls)
-                logger.info(f"Added {added} URLs from main page")
+            # Always save URLs immediately
+            added = url_manager.add_urls(category, main_urls)
+            logger.info(f"Added {added} URLs from main page")
         
         # Then try pagination if needed
         page = 2  # Start from page 2
@@ -141,9 +145,9 @@ def crawl_category(source_url: str, category: str, url_manager=None, max_pages: 
             if page_urls:
                 consecutive_empty = 0
                 all_urls.update(page_urls)
-                if url_manager:
-                    added = url_manager.add_urls(category, page_urls)
-                    logger.info(f"Added {added} new URLs on page {page}")
+                # Always save URLs immediately 
+                added = url_manager.add_urls(category, page_urls)
+                logger.info(f"Added {added} new URLs on page {page}")
                 logger.info(f"Found {len(page_urls)} URLs on page {page}")
             else:
                 consecutive_empty += 1

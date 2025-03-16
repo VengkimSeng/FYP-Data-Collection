@@ -118,6 +118,7 @@ def crawl_category(source_url: str, category: str, url_manager=None, max_pages: 
             if url_manager:
                 added = url_manager.add_urls(category, main_urls)
                 logger.info(f"Added {added} URLs from main page")
+                url_manager.save_to_file(category)  # Force save to file immediately
         
         # Then try pagination if needed
         page = 2  # Start from page 2
@@ -144,6 +145,7 @@ def crawl_category(source_url: str, category: str, url_manager=None, max_pages: 
                 if url_manager:
                     added = url_manager.add_urls(category, page_urls)
                     logger.info(f"Added {added} new URLs on page {page}")
+                    url_manager.save_to_file(category)  # Force save to file immediately
                 logger.info(f"Found {len(page_urls)} URLs on page {page}")
             else:
                 consecutive_empty += 1

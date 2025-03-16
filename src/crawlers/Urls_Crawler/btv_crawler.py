@@ -95,6 +95,11 @@ def crawl_category(source_url: str, category: str, url_manager=None, max_pages: 
             if page_urls:
                 all_urls.update(page_urls)
                 logger.info(f"Found {len(page_urls)} URLs on main page")
+                # Save URLs from main page immediately and log results
+                if url_manager:
+                    added_count = url_manager.add_urls(category, page_urls)
+                    logger.info(f"Added {added_count} new URLs from main page to URL manager")
+                    url_manager.save_to_file(category)  # Force save to file immediately
             else:
                 logger.warning("No URLs found on main page")
                 empty_pages_count += 1
@@ -145,15 +150,17 @@ def crawl_category(source_url: str, category: str, url_manager=None, max_pages: 
                     logger.info(f"Found {len(page_urls)} URLs, {new_unique_count} are new unique")
                     empty_pages_count = 0
                     consecutive_no_new_urls = 0
+                    # Save URLs immediately and log results
                     if url_manager:
-                        url_manager.add_urls(category, page_urls)
+                        added_count = url_manager.add_urls(category, page_urls)
+                        logger.info(f"Added {added_count} new URLs from page {current_page} to URL manager")
+                        url_manager.save_to_file(category)  # Force save to file immediately
                 else:
                     consecutive_no_new_urls += 1
                     logger.info(f"No new unique URLs on page {current_page} (attempt {consecutive_no_new_urls}/{max_consecutive_no_new})")
                     if consecutive_no_new_urls >= max_consecutive_no_new:
                         logger.info("No more new URLs found after multiple attempts, stopping crawl")
                         break
-                
             finally:
                 driver.quit()
             
