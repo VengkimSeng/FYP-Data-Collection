@@ -194,13 +194,17 @@ def scrape_page_content(driver, base_url, category, max_click=-1) -> Set[str]:
     click_attempts = 0
     consecutive_failures = 0
     max_consecutive_failures = 3
+    consecutive_no_new_urls = 0
+    max_consecutive_no_new = 3
     
     # Initial page load
     soup = BeautifulSoup(driver.page_source, "html.parser")
     initial_urls = extract_article_urls(soup, base_url)
     visited_urls.update(initial_urls)
     
-    while (max_click == -1 or click_attempts < max_click) and consecutive_failures < max_consecutive_failures:
+    logger.info(f"Initial page: Found {len(initial_urls)} URLs")
+    
+    while (max_click == -1 or click_attempts < max_click) and consecutive_failures < max_consecutive_failures and consecutive_no_new_urls < max_consecutive_no_new:
         if scroll_and_click(driver, category):
             soup = BeautifulSoup(driver.page_source, "html.parser")
             new_urls = extract_article_urls(soup, base_url)
@@ -208,18 +212,24 @@ def scrape_page_content(driver, base_url, category, max_click=-1) -> Set[str]:
             # Check if we found new URLs
             old_count = len(visited_urls)
             visited_urls.update(new_urls)
-            if len(visited_urls) > old_count:
+            new_unique_count = len(visited_urls) - old_count
+            
+            if new_unique_count > 0:
                 consecutive_failures = 0
-                logger.info(f"Found {len(visited_urls) - old_count} new URLs")
+                consecutive_no_new_urls = 0
+                logger.info(f"Found {new_unique_count} new unique URLs")
             else:
-                consecutive_failures += 1
-                logger.warning(f"No new URLs found (attempt {consecutive_failures}/{max_consecutive_failures})")
+                consecutive_no_new_urls += 1
+                logger.warning(f"No new URLs found (attempt {consecutive_no_new_urls}/{max_consecutive_no_new})")
         else:
             consecutive_failures += 1
             logger.warning(f"Click failed (attempt {consecutive_failures}/{max_consecutive_failures})")
             
         click_attempts += 1
         logger.info(f"Click attempt {click_attempts}/{max_click}")
+    
+    if consecutive_no_new_urls >= max_consecutive_no_new:
+        logger.info("Stopping: No new unique URLs found in consecutive attempts")
     
     return visited_urls
 
@@ -242,7 +252,9 @@ def crawl_category(url: str, category: str, max_click: int = -1) -> set:
         time.sleep(5)  # Initial load
         
         urls = scrape_page_content(driver, url, category, max_click=max_click)
-        return filter_postkhmer_urls(list(urls))
+        filtered_urls = filter_postkhmer_urls(list(urls))
+        logger.info(f"Total unique URLs after filtering: {len(filtered_urls)}")
+        return filtered_urls
         
     except Exception as e:
         logger.error(f"Error crawling {category}: {e}")

@@ -4,6 +4,11 @@ import time
 import json
 import importlib.util
 from typing import Dict, Set, List
+import traceback
+import concurrent.futures
+import argparse
+import logging
+import atexit
 
 # Add project root to path for imports
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -11,10 +16,24 @@ sys.path.append(project_root)
 
 from src.utils.chrome_setup import setup_chrome_driver
 from src.crawlers.url_manager import URLManager
-from src.utils.log_utils import get_crawler_logger
+from src.utils.log_utils import get_crawler_logger, setup_logger
+
+# Create log directories
+os.makedirs(os.path.join(project_root, "logs", "crawlers"), exist_ok=True)
+os.makedirs(os.path.join(project_root, "logs", "categories"), exist_ok=True)
 
 # Initialize logger
 logger = get_crawler_logger('test_crawler')
+
+# Set up an exit handler to flush all logs
+def exit_handler():
+    for handler in logger.handlers:
+        handler.flush()
+    for handler in logging.root.handlers:
+        handler.flush()
+    logging.shutdown()
+
+atexit.register(exit_handler)
 
 # Try to rename the crawler file if it exists in old format
 try:
@@ -75,23 +94,34 @@ def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
     Returns:
         bool: Success or failure
     """
-    logger.info(f"Testing {crawler_name} crawler for {category}")
+    # Set up a category-specific log file
+    log_dir = os.path.join(project_root, "logs", "categories") 
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, f"{crawler_name}_{category}.log")
+    
+    cat_logger = setup_logger(
+        f"{crawler_name}_{category}", 
+        log_file,
+        console=True
+    )
+    
+    cat_logger.info(f"Testing {crawler_name} crawler for {category}")
     
     # Initialize URL manager for testing with absolute path
     output_dir = os.path.abspath("output/urls")  # Changed to use main output dir
     url_manager = URLManager(output_dir, crawler_name)
-    logger.info(f"URLs will be saved to: {os.path.join(output_dir, f'{category}.json')}")
+    cat_logger.info(f"URLs will be saved to: {os.path.join(output_dir, f'{category}.json')}")
     
     # Get source URLs for this crawler/category
     sources = url_manager.get_sources_for_category(category, crawler_name)
     if not sources:
-        logger.error(f"No source URLs found for {crawler_name} - {category}")
+        cat_logger.error(f"No source URLs found for {crawler_name} - {category}")
         return False
     
     # Import the crawler module
     crawler_module = import_crawler_module(crawler_name)
     if not crawler_module:
-        logger.error(f"Failed to import {crawler_name} crawler module")
+        cat_logger.error(f"Failed to import {crawler_name} crawler module")
         return False
     
     start_time = time.time()
@@ -100,7 +130,7 @@ def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
     
     try:
         for source_url in sources:
-            logger.info(f"Testing {crawler_name} crawler for {category} at {source_url}")
+            cat_logger.info(f"Testing {crawler_name} crawler for {category} at {source_url}")
             
             if hasattr(crawler_module, 'crawl_category'):
                 try:
@@ -121,11 +151,11 @@ def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
                     
                     # Safety checks on returned URLs
                     if not urls:
-                        logger.warning(f"{crawler_name} crawler returned no URLs")
+                        cat_logger.warning(f"{crawler_name} crawler returned no URLs")
                         continue
                         
                     if not isinstance(urls, (list, set)):
-                        logger.error(f"{crawler_name} returned invalid URL type: {type(urls)}")
+                        cat_logger.error(f"{crawler_name} returned invalid URL type: {type(urls)}")
                         continue
                     
                     # Convert to set for deduplication
@@ -140,7 +170,7 @@ def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
                             with open(output_file, 'r', encoding='utf-8') as f:
                                 existing_urls = json.load(f)
                         except Exception as e:
-                            logger.error(f"Error loading existing URLs: {e}")
+                            cat_logger.error(f"Error loading existing URLs: {e}")
                     
                     # Combine existing and new URLs using sets for deduplication
                     combined_urls = list(set(existing_urls) | new_urls)
@@ -154,17 +184,17 @@ def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
                         # Track number of new URLs added
                         added_urls = len(combined_urls) - len(existing_urls)
                         urls_collected += added_urls
-                        logger.info(f"Found {len(new_urls)} URLs, added {added_urls} new unique URLs")
-                        logger.info(f"Saved {len(combined_urls)} URLs to {output_file}")
+                        cat_logger.info(f"Found {len(new_urls)} URLs, added {added_urls} new unique URLs")
+                        cat_logger.info(f"Saved {len(combined_urls)} URLs to {output_file}")
                         success = True
                     except Exception as e:
-                        logger.error(f"Error saving URLs to file: {e}")
+                        cat_logger.error(f"Error saving URLs to file: {e}")
                     
                 except Exception as e:
-                    logger.error(f"Error during crawl_category: {str(e)}")
+                    cat_logger.error(f"Error during crawl_category: {str(e)}")
                     continue
             else:
-                logger.error("Crawler module missing crawl_category function")
+                cat_logger.error("Crawler module missing crawl_category function")
                 return False
             
             # Only check max_urls if it's not set to unlimited (-1)
@@ -172,12 +202,12 @@ def test_crawler(crawler_name: str, category: str, max_urls: int = 5):
                 break
                 
     except Exception as e:
-        logger.error(f"Error testing crawler: {str(e)}")
+        cat_logger.error(f"Error testing crawler: {str(e)}")
         return False
         
     duration = time.time() - start_time
-    logger.info(f"\nTest completed in {duration:.2f} seconds")
-    logger.info(f"URLs collected: {urls_collected}")
+    cat_logger.info(f"\nTest completed in {duration:.2f} seconds")
+    cat_logger.info(f"URLs collected: {urls_collected}")
     
     return success
 
@@ -205,71 +235,177 @@ def get_available_categories(url_manager: URLManager) -> List[str]:
     """Get list of available categories."""
     return sorted(url_manager.category_sources.keys())
 
+def process_category(category: str, crawlers: List[str], url_manager: URLManager):
+    """Process a single category with all relevant crawlers."""
+    # Get a category-specific logger
+    cat_logger = get_crawler_logger(f"category_{category}")
+    
+    # Load categories to find relevant crawlers
+    categories_config = load_categories()
+    if not categories_config:
+        cat_logger.error("Failed to load categories configuration")
+        return False
+
+    # Find crawlers that have sources for this category
+    if category in categories_config:
+        category_crawlers = categories_config[category].keys()
+        # Filter by available crawlers
+        relevant_crawlers = [c for c in category_crawlers if c in crawlers]
+        
+        if not relevant_crawlers:
+            cat_logger.error(f"No crawlers found for category: {category}")
+            return False
+        
+        cat_logger.info(f"Running {len(relevant_crawlers)} crawlers for category '{category}': {', '.join(relevant_crawlers)}")
+        
+        success = True
+        for crawler in relevant_crawlers:
+            cat_logger.info(f"\n{'=' * 50}")
+            cat_logger.info(f"RUNNING {crawler.upper()} CRAWLER FOR {category.upper()}")
+            cat_logger.info(f"{'=' * 50}")
+            
+            try:
+                crawler_success = test_crawler(crawler, category, max_urls=-1)  # -1 means unlimited
+                if not crawler_success:
+                    cat_logger.warning(f"Crawler {crawler} failed for category {category}")
+                    success = False
+                else:
+                    cat_logger.info(f"Crawler {crawler} completed successfully for category {category}")
+            except Exception as e:
+                cat_logger.error(f"Exception in {crawler} crawler for {category}: {str(e)}")
+                cat_logger.error(traceback.format_exc())
+                success = False
+                # Continue with next crawler despite errors
+        
+        cat_logger.info(f"\n{'=' * 50}")
+        cat_logger.info(f"CATEGORY {category.upper()} COMPLETED")
+        cat_logger.info(f"Status: {'SUCCESS' if success else 'PARTIAL FAILURE'}")
+        cat_logger.info(f"{'=' * 50}")
+        
+        # Also log to the main logger
+        logger.info(f"Category {category} processing {'succeeded' if success else 'had failures'}")
+        
+        return success
+    else:
+        cat_logger.error(f"Category not found in configuration: {category}")
+        return False
+
 def main():
     """Main test function."""
-    # Check if running in production mode
-    is_prod_mode = len(sys.argv) > 1 and sys.argv[1].lower() == "prod"
+    # Parse arguments
+    parser = argparse.ArgumentParser(description="Test crawlers for categories")
+    parser.add_argument("mode", nargs="?", default="test", help="Mode: 'test' or 'prod'")
+    parser.add_argument("category", nargs="?", help="Category to crawl (if not specified, run all)")
+    parser.add_argument("--daemon", action="store_true", help="Run in daemon mode")
+    parser.add_argument("--log", help="Log file path (for daemon mode)")
+    parser.add_argument("--workers", type=int, default=6, help="Number of concurrent workers")
+    parser.add_argument("--timeout", type=int, default=3600, help="Timeout per category in seconds")
+    
+    args = parser.parse_args()
+    is_prod_mode = args.mode.lower() == "prod" 
+    
+    # Configure process to run in background if needed
+    if args.daemon:
+        # Redirect output to log file when running as daemon
+        log_file = "crawler_test.log" if not args.log else args.log
+        
+        # Make sure the log directory exists
+        log_dir = os.path.dirname(log_file)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        
+        # Set up file logging for main logger
+        file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
+        file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+        logger.addHandler(file_handler)
+        
+        logger.info(f"Running in daemon mode, output redirected to {log_file}")
+        
+        # Don't redirect stdout/stderr as this interferes with logging
+        # Instead, we'll ensure our loggers write to both console and file
     
     url_manager = URLManager("output/urls", "test")
     
-    # Show available categories
+    # Get available categories and crawlers
     categories = get_available_categories(url_manager)
     crawlers = get_available_crawlers()
     
-    print("\nAvailable categories:")
-    print(", ".join(categories))
-    print()
-    
-    # Get category from user
-    category = input("Enter category to test: ").strip().lower()
-    while category not in categories:
-        print(f"Invalid category. Please choose from: {', '.join(categories)}")
-        category = input("Enter category to test: ").strip().lower()
+    logger.info(f"Available categories: {', '.join(categories)}")
+    logger.info(f"Available crawlers: {', '.join(crawlers)}")
     
     if is_prod_mode:
-        # In production mode, run all relevant crawlers for this category
-        logger.info(f"Starting production crawl for category: {category}")
-        
-        # Load categories to find relevant crawlers
-        categories_config = load_categories()
-        if not categories_config:
-            logger.error("Failed to load categories configuration")
-            sys.exit(1)
-        
-        # Find crawlers that have sources for this category
-        if category in categories_config:
-            category_crawlers = categories_config[category].keys()
-            # Filter by available crawlers
-            relevant_crawlers = [c for c in category_crawlers if c in crawlers]
-            
-            if not relevant_crawlers:
-                logger.error(f"No crawlers found for category: {category}")
+        # Check if a specific category was provided as an argument
+        specified_category = args.category
+        if specified_category and specified_category.lower() != "--daemon" and specified_category.lower() != "--log":
+            specified_category = specified_category.lower()
+            if specified_category not in categories:
+                logger.error(f"Invalid category: {specified_category}")
                 sys.exit(1)
             
-            logger.info(f"Running {len(relevant_crawlers)} crawlers for category '{category}': {', '.join(relevant_crawlers)}")
-            
-            success = True
-            for crawler in relevant_crawlers:
-                logger.info(f"\n{'=' * 50}")
-                logger.info(f"RUNNING {crawler.upper()} CRAWLER FOR {category.upper()}")
-                logger.info(f"{'=' * 50}")
-                crawler_success = test_crawler(crawler, category, max_urls=-1)  # -1 means unlimited
-                if not crawler_success:
-                    logger.warning(f"Crawler {crawler} failed for category {category}")
-                    success = False
-                else:
-                    logger.info(f"Crawler {crawler} completed successfully for category {category}")
-            
-            logger.info(f"\n{'=' * 50}")
-            logger.info(f"PRODUCTION CRAWL FOR {category.upper()} COMPLETED")
-            logger.info(f"Overall status: {'SUCCESS' if success else 'FAILURE'}")
-            logger.info(f"{'=' * 50}")
+            logger.info(f"Running production crawl for specified category: {specified_category}")
+            success = process_category(specified_category, crawlers, url_manager)
             sys.exit(0 if success else 1)
         else:
-            logger.error(f"Category not found in configuration: {category}")
-            sys.exit(1)
+            # Run all categories concurrently
+            logger.info(f"Running production crawl for ALL categories with {args.workers} workers")
+            
+            overall_start_time = time.time()
+            results = {}
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor:
+                # Submit all categories for processing
+                future_to_category = {
+                    executor.submit(process_category, category, crawlers, url_manager): category 
+                    for category in categories
+                }
+                
+                # Process results as they complete
+                overall_success = True
+                for future in concurrent.futures.as_completed(future_to_category):
+                    category = future_to_category[future]
+                    try:
+                        success = future.result()
+                        results[category] = success
+                        if not success:
+                            overall_success = False
+                            logger.warning(f"Category {category} processing had failures")
+                        else:
+                            logger.info(f"Category {category} processing completed successfully")
+                    except concurrent.futures.TimeoutError:
+                        overall_success = False
+                        logger.error(f"Timeout processing category {category}")
+                        results[category] = False
+                    except Exception as e:
+                        overall_success = False
+                        logger.error(f"Error processing category {category}: {str(e)}")
+                        logger.error(traceback.format_exc())
+                        results[category] = False
+            
+            overall_duration = time.time() - overall_start_time
+            
+            # Final summary
+            logger.info(f"\n{'#' * 60}")
+            logger.info(f"ALL CATEGORIES COMPLETED in {overall_duration:.2f} seconds")
+            
+            # Print results for each category
+            for cat, success in results.items():
+                logger.info(f"- {cat}: {'SUCCESS' if success else 'FAILURE'}")
+                
+            logger.info(f"Overall status: {'SUCCESS' if overall_success else 'PARTIAL FAILURE'}")
+            logger.info(f"{'#' * 60}")
+            sys.exit(0 if overall_success else 1)
     else:
-        # In test mode, only run one crawler as specified by user
+        # In test mode, show options and get input
+        print("\nAvailable categories:")
+        print(", ".join(categories))
+        print()
+        
+        # Get category from user
+        category = input("Enter category to test: ").strip().lower()
+        while category not in categories:
+            print(f"Invalid category. Please choose from: {', '.join(categories)}")
+            category = input("Enter category to test: ").strip().lower()
+        
         print("\nAvailable crawlers:")
         print(", ".join(crawlers))
         print()

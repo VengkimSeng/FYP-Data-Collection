@@ -71,6 +71,9 @@ def crawl_category(source_url: str, category: str, url_manager=None, max_pages: 
     all_urls = set()
     current_page = 1
     empty_pages_count = 0  # Track consecutive empty pages
+    max_consecutive_empty = 2  # Stop after this many consecutive empty pages
+    consecutive_no_new_urls = 0
+    max_consecutive_no_new = 2  # Stop after this many pages with no new URLs
     
     # First try the direct URL (important!)
     logger.info(f"Starting crawl of category '{category}' from URL: {source_url}")
@@ -110,7 +113,9 @@ def crawl_category(source_url: str, category: str, url_manager=None, max_pages: 
     # For unlimited pages, use a large number that's effectively infinite
     max_iter = 10000 if max_pages == -1 else max_pages
     
-    while current_page <= max_iter and empty_pages_count < 2:
+    while (current_page <= max_iter and 
+           empty_pages_count < max_consecutive_empty and 
+           consecutive_no_new_urls < max_consecutive_no_new):
         try:
             # Use query parameter for pagination - example: https://btv.com.kh/category/sport?page=2
             page_url = f"{source_url}{'&' if '?' in source_url else '?'}page={current_page}"
@@ -123,7 +128,7 @@ def crawl_category(source_url: str, category: str, url_manager=None, max_pages: 
                 if not html:
                     logger.warning(f"Failed to fetch page {current_page}")
                     empty_pages_count += 1
-                    if empty_pages_count >= 2:  # Stop after 2 consecutive empty pages
+                    if empty_pages_count >= max_consecutive_empty:
                         logger.info("Multiple empty pages detected, stopping crawl")
                         break
                     continue
@@ -131,18 +136,23 @@ def crawl_category(source_url: str, category: str, url_manager=None, max_pages: 
                 # Extract URLs from the page
                 page_urls = extract_urls(html, page_url)
                 
-                if page_urls:
-                    all_urls.update(page_urls)
+                # Check if we found new unique URLs
+                old_count = len(all_urls)
+                all_urls.update(page_urls)
+                new_unique_count = len(all_urls) - old_count
+                
+                if new_unique_count > 0:
+                    logger.info(f"Found {len(page_urls)} URLs, {new_unique_count} are new unique")
+                    empty_pages_count = 0
+                    consecutive_no_new_urls = 0
                     if url_manager:
                         url_manager.add_urls(category, page_urls)
-                    logger.info(f"Found {len(page_urls)} URLs on page {current_page}")
-                    empty_pages_count = 0
                 else:
-                    empty_pages_count += 1
-                    if empty_pages_count >= 2:  # Stop after 2 consecutive empty pages
-                        logger.info("No more content found after multiple attempts, stopping crawl")
+                    consecutive_no_new_urls += 1
+                    logger.info(f"No new unique URLs on page {current_page} (attempt {consecutive_no_new_urls}/{max_consecutive_no_new})")
+                    if consecutive_no_new_urls >= max_consecutive_no_new:
+                        logger.info("No more new URLs found after multiple attempts, stopping crawl")
                         break
-                    logger.info(f"No URLs found on page {current_page}")
                 
             finally:
                 driver.quit()
@@ -153,7 +163,7 @@ def crawl_category(source_url: str, category: str, url_manager=None, max_pages: 
         except Exception as e:
             logger.error(f"Error crawling page {current_page}: {e}")
             empty_pages_count += 1
-            if empty_pages_count >= 2:
+            if empty_pages_count >= max_consecutive_empty:
                 logger.info("Multiple errors encountered, stopping crawl")
                 break
     
