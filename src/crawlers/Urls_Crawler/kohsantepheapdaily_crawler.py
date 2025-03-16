@@ -105,19 +105,65 @@ def crawl_category(url: str, category: str, url_manager=None, max_scroll: int = 
         
         # Pass max_scroll parameter directly (already handles -1)
         scroll_page(driver, max_attempts=max_scroll)
-        page_urls = extract_urls(driver.page_source, url)
-        urls.update(page_urls)
+        initial_page_urls = extract_urls(driver.page_source, url)
+        urls.update(initial_page_urls)
         
         # Save URLs if url_manager is provided
-        if url_manager and page_urls:
-            url_manager.add_urls(category, page_urls)
-            logger.info(f"Added {len(page_urls)} URLs using url_manager")
+        if url_manager and initial_page_urls:
+            added_count = url_manager.add_urls(category, initial_page_urls)
+            logger.info(f"Added {added_count} URLs using url_manager from initial page")
             
+        # If pagination is available, follow it
+        page = 2
+        consecutive_no_new_urls = 0
+        max_consecutive_no_new = 2
+        
+        while consecutive_no_new_urls < max_consecutive_no_new:
+            try:
+                # Construct page URL - format depends on the site
+                # Try both formats common for pagination
+                page_url = f"{url}/page/{page}"
+                logger.info(f"Trying pagination: {page_url}")
+                
+                driver.get(page_url)
+                time.sleep(3)
+                
+                # Check if page loaded successfully
+                if "404" in driver.title or "not found" in driver.title.lower():
+                    logger.info(f"Pagination ended at page {page-1}")
+                    break
+                    
+                scroll_page(driver, max_attempts=max_scroll)
+                page_urls = extract_urls(driver.page_source, page_url)
+                
+                # Check for new unique URLs
+                old_count = len(urls)
+                urls.update(page_urls)
+                new_unique_count = len(urls) - old_count
+                
+                if new_unique_count > 0:
+                    consecutive_no_new_urls = 0
+                    logger.info(f"Found {new_unique_count} new unique URLs on page {page}")
+                    
+                    if url_manager:
+                        added_count = url_manager.add_urls(category, page_urls)
+                        logger.info(f"Added {added_count} URLs using url_manager from page {page}")
+                else:
+                    consecutive_no_new_urls += 1
+                    logger.info(f"No new unique URLs on page {page} (attempt {consecutive_no_new_urls}/{max_consecutive_no_new})")
+                    
+                page += 1
+                
+            except Exception as e:
+                logger.error(f"Error processing pagination: {e}")
+                break
+                
     except Exception as e:
         logger.error(f"Error crawling {category}: {e}")
     finally:
         driver.quit()
         
+    logger.info(f"Completed crawling {category} with {len(urls)} total unique URLs")
     return urls
 
 def main():

@@ -49,31 +49,55 @@ class ColoredFormatter(logging.Formatter):
         
         return super().format(record)
 
-def setup_logger(name: str, log_file: str = None, level=logging.INFO):
-    """Configure and return a logger with colored output"""
+def setup_logger(name, log_file=None, level=logging.INFO, formatter=None, console=True):
+    """
+    Set up a logger with file and optional console handlers
+    
+    Args:
+        name: Logger name
+        log_file: Path to log file (optional)
+        level: Logging level
+        formatter: Optional formatter to use
+        console: Whether to add console handler
+        
+    Returns:
+        Logger object
+    """
+    # Create logger
     logger = logging.getLogger(name)
     logger.setLevel(level)
+    logger.propagate = False  # Don't pass messages to ancestor loggers
+    
+    # Remove existing handlers to prevent duplicates
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
     
     # Create formatters
-    console_formatter = ColoredFormatter(
-        '%(asctime)s | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
+    if formatter is None:
+        console_formatter = ColoredFormatter(
+            '%(asctime)s | %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        
+        file_formatter = logging.Formatter(
+            '%(asctime)s | %(name)s | %(levelname)s | %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+    else:
+        console_formatter = formatter
+        file_formatter = formatter
     
-    file_formatter = logging.Formatter(
-        '%(asctime)s | %(name)s | %(levelname)s | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
+    # Add console handler if requested
+    if console:
+        console_handler = logging.StreamHandler(stream=sys.stdout)
+        console_handler.setFormatter(console_formatter)
+        logger.addHandler(console_handler)
     
-    # Console handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(console_formatter)
-    logger.addHandler(console_handler)
-    
-    # File handler (if log_file specified)
+    # Add file handler if log_file provided
     if log_file:
-        os.makedirs(os.path.dirname(log_file), exist_ok=True)
-        file_handler = logging.FileHandler(log_file)
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(os.path.join(os.getcwd(), log_file)), exist_ok=True)
+        file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
     
@@ -81,7 +105,14 @@ def setup_logger(name: str, log_file: str = None, level=logging.INFO):
 
 def get_crawler_logger(crawler_name: str):
     """Get a logger specifically for a crawler with appropriate color coding"""
-    log_dir = "output/logs/crawlers"
+    log_dir = os.path.join(os.getcwd(), "logs", "crawlers")
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, f"{crawler_name}.log")
-    return setup_logger(f"crawler.{crawler_name}", log_file)
+    logger = setup_logger(f"crawler.{crawler_name}", log_file)
+    
+    # Ensure the logger flushes immediately
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            handler.flush()
+    
+    return logger

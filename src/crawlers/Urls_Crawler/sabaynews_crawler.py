@@ -131,32 +131,39 @@ def scrape_urls(driver: webdriver.Chrome) -> Set[str]:
 
 def crawl_category(url: str, category: str, max_pages: int = -1) -> Set[str]:
     """
-    Crawl a category page using AJAX pagination.
+    Crawl a category page by category and generate article URLs.
     
     Args:
-        url: Base URL for the category
-        category: Category name
-        max_pages: Maximum number of pages to crawl (-1 for unlimited pagination)
+        url: Base URL of the category
+        category: Category name to crawl
+        max_pages: Maximum number of pages to crawl (-1 for unlimited)
     
     Returns:
-        Set of article URLs
+        Set of collected URLs
     """
-    driver = setup_selenium(CrawlerConfig())
+    driver = setup_selenium(CrawlerConfig(wait_time=5))
     urls = set()
     page = 0
     consecutive_empty = 0
+    max_consecutive_empty = 3
     
     try:
-        # Get initial page content
-        logger.info(f"Crawling initial page at {url}")
-        driver.get(url)
-        time.sleep(2)
-        urls.update(scrape_urls(driver))
+        # First page URL
+        base_url = url
+        logger.info(f"Starting with base URL: {base_url}")
         
-        # Then use AJAX URLs for pagination
-        while (max_pages == -1 or page <= max_pages) and consecutive_empty < 3:
-            # Construct AJAX URL for pagination
-            ajax_url = f"https://news.sabay.com.kh/ajax/topics/{category}/{page + 1}"
+        driver.get(base_url)
+        time.sleep(5)  # Initial wait for page to load
+        
+        # Get initial URLs
+        initial_urls = scrape_urls(driver)
+        urls.update(initial_urls)
+        logger.info(f"Found {len(initial_urls)} URLs on first page")
+        
+        # Continue with AJAX-based pagination
+        while (max_pages == -1 or page < max_pages) and consecutive_empty < max_consecutive_empty:
+            # Construct the AJAX URL for the next page
+            ajax_url = f"{base_url}?page={page + 1}"
             logger.info(f"Crawling page {page + 1} at {ajax_url}")
             
             try:
@@ -165,13 +172,17 @@ def crawl_category(url: str, category: str, max_pages: int = -1) -> Set[str]:
                 
                 page_urls = scrape_urls(driver)
                 
-                if not page_urls:
+                # Check for new unique URLs
+                old_count = len(urls)
+                urls.update(page_urls)
+                new_unique_count = len(urls) - old_count
+                
+                if new_unique_count == 0:
                     consecutive_empty += 1
-                    logger.info(f"Empty page (attempt {consecutive_empty}/3)")
+                    logger.info(f"No new URLs found (attempt {consecutive_empty}/{max_consecutive_empty})")
                 else:
                     consecutive_empty = 0
-                    urls.update(page_urls)
-                    logger.info(f"Found {len(page_urls)} URLs on page {page + 1} (Total: {len(urls)})")
+                    logger.info(f"Found {new_unique_count} new URLs on page {page + 1} (Total: {len(urls)})")
                 
                 page += 1
                 

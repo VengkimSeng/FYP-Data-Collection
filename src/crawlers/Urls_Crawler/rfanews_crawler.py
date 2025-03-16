@@ -204,20 +204,26 @@ def crawl_category(url: str, category: str, max_clicks: int = -1) -> Set[str]:
             new_urls = extract_article_urls(driver, base_domain, category)
             filtered = filter_article_urls(list(new_urls), base_domain, category)
             
+            # Check if we found new unique URLs
             old_count = len(filtered_urls)
             filtered_urls.update(filtered)
             
-            if len(filtered_urls) > old_count:
+            new_unique_count = len(filtered_urls) - old_count
+            logger.info(f"Found {len(filtered)} URLs, {new_unique_count} are new unique")
+            
+            if new_unique_count > 0:
                 consecutive_empty = 0
-                logger.info(f"Found {len(filtered_urls) - old_count} new URLs (Total: {len(filtered_urls)})")
+                logger.info(f"Found {new_unique_count} new URLs (Total: {len(filtered_urls)})")
             else:
                 consecutive_empty += 1
+                logger.info(f"No new unique URLs found (attempt {consecutive_empty}/3)")
             
             if click_load_more(driver):
                 clicks += 1
                 time.sleep(5)
             else:
                 consecutive_empty += 1
+                logger.info("Could not click load more button")
                 
     except Exception as e:
         logger.error(f"Error crawling {category}: {e}")
