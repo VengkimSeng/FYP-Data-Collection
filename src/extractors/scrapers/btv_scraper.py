@@ -16,7 +16,9 @@ def scrape_btv(url, category):
     Returns:
         Dict containing article data if successful, None otherwise
     """
-    return generic_scrape(url, category, "h4.color", "font-size-detail.textview")
+    title_selector = "h4.color"
+    content_selector = "font-size-detail.textview"
+    return generic_scrape(url, category, title_selector=title_selector, content_selector=content_selector)
 
 # Register the scraper in the SCRAPER_MAP
 SCRAPER_MAP["https://btv.com.kh"] = scrape_btv

@@ -491,7 +491,20 @@ def process_url(url, category):
 
 # Update the generic_scrape function to use category-specific logging
 @retry_on_exception()  # No parameters here to ensure using global MAX_RETRIES
-def generic_scrape(url, category, title_selector, content_selector, is_id=False):
+def generic_scrape(url: str, category: str, title_selector: str, content_selector: str, is_id: bool = False) -> Optional[Dict[str, Any]]:
+    """
+    Extract article content using generic extraction techniques.
+    
+    Args:
+        url: URL to extract from
+        category: Category of the article
+        title_selector: CSS selector for the title element
+        content_selector: CSS selector for the content element
+        is_id: Whether the content selector is an ID
+        
+    Returns:
+        Dictionary containing article data or None if extraction failed
+    """
     global success_count
     
     # Check if already scraped

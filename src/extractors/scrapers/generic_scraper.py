@@ -1,208 +1,248 @@
 """
-Generic scraper for websites with similar structures.
+Generic web scraper for article extraction.
+
+This module provides a fallback method for extracting content from websites
+that don't have a dedicated scraper implementation.
 """
 
-import threading
+import os
 import time
-import traceback
+from typing import Dict, Any, Optional
+from urllib.parse import urlparse
+from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+
+from src.extractors.browser import create_driver, close_driver
+from src.extractors.logger import log_scrape_status, log_debug, log_error, log_category_progress
+from src.extractors.utils import is_scraped
 from colorama import Fore, Style
 
-from ..browser import create_driver
-from ..utils import retry_on_exception, is_scraped
-from ..logger import log_scrape_status, log_debug, log_category_progress, log_category_error
-from ..storage import save_article_data
-from ..config import MAX_WAIT_TIME
-
-@retry_on_exception()
-def generic_scrape(url, category, title_selector, content_selector, is_id=False):
-    """Generic scraper for websites with similar structure."""
-    # Check if already scraped
-    if is_scraped(category, url):
-        log_scrape_status(f"{Fore.YELLOW}[SKIPPED] Already scraped: {url}{Style.RESET_ALL}")
-        log_category_progress(category, url, "SKIPPED: URL already scraped", is_start=True, is_end=True)
-        return None
-
+def generic_scrape(url: str, category: str, title_selector: str = None, content_selector: str = None, is_id: bool = False, max_retries: int = 3, log_progress: bool = False, **kwargs) -> Optional[Dict[str, Any]]:
+    """
+    Extract article content using generic extraction techniques.
+    
+    Args:
+        url: URL to extract from
+        category: Category of the article
+        title_selector: CSS selector for the title element
+        content_selector: CSS selector for the content element
+        is_id: Whether to use ID instead of CSS selector for content
+        max_retries: Maximum number of retries on failure
+        log_progress: Whether to log progress messages
+        **kwargs: Additional keyword arguments passed to specific scrapers
+        
+    Returns:
+        Dictionary containing article data or None if extraction failed
+    """
     driver = None
-    html_debug_file = None
-    try:
-        log_scrape_status(f"🔍 Setting up Chrome for {url}")
-        log_category_progress(category, url, "Setting up Chrome driver")
-        driver = create_driver()
-
+    retry_count = 0
+    success_count = 0
+    error_count = 0
+    
+    while retry_count < int(max_retries):  # Ensure max_retries is int
         try:
-            log_scrape_status(f"🔍 Navigating to: {url}")
+            # Check if already scraped
+            if is_scraped(url, category):
+                log_debug(f"URL already scraped, skipping: {url}")
+                return None
+                
+            # Get the domain
+            domain = urlparse(url).netloc
+            
+            # Create a new driver
+            driver = create_driver(headless=True, no_images=True)
+            
+            # Load the page
             driver.get(url)
-            log_scrape_status(f"✅ Page loaded for: {url}")
-            print(f"Page title: {driver.title}")
-            log_scrape_status(f"📄 Page title: {driver.title}")
-            log_scrape_status(f"{Fore.CYAN}[DEBUG] Using selectors - Title: {title_selector}, Content: {content_selector}{Style.RESET_ALL}")
-            log_category_progress(category, url, f"Navigating to URL")
-            log_category_progress(category, url, f"Using selectors - Title: {title_selector}, Content: {content_selector}")
             
-            # Wait for title to load with heartbeat
-            try:
-                log_debug(f"Starting title extraction for: {url}")
-                log_scrape_status(f"🔍 Searching for title using: {title_selector}")
-                log_category_progress(category, url, f"Searching for title using: {title_selector}")
+            if log_progress:
+                log_category_progress(category, 0, 1, 0, 0)
                 
-                # Use an event to signal when to stop the heartbeat
-                title_stop_event = threading.Event()
-                
-                def title_heartbeat():
-                    elapsed = 0
-                    while not title_stop_event.is_set() and elapsed < MAX_WAIT_TIME:
-                        print(f"Waiting for title... {elapsed}s elapsed")
-                        time.sleep(5)
-                        elapsed += 5
-                    log_debug(f"Title heartbeat thread ending. Stop event set: {title_stop_event.is_set()}")
-                
-                heartbeat_thread = threading.Thread(target=title_heartbeat)
-                heartbeat_thread.daemon = True
-                heartbeat_thread.start()
-                
-                log_debug(f"Waiting for title element using selector: {title_selector}")
-                if not is_id:
-                    title_element = WebDriverWait(driver, MAX_WAIT_TIME).until(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, title_selector))
-                    )
-                else:
-                    title_element = WebDriverWait(driver, MAX_WAIT_TIME).until(
-                        EC.presence_of_element_located((By.TAG_NAME, title_selector))
-                    )
-                
-                # Signal the heartbeat thread to stop
-                title_stop_event.set()
-                log_debug("Title element found, stopping heartbeat thread")
-                
-                title = title_element.text.strip()
-                log_scrape_status(f"✅ Title found: {title[:50]}...")
-                log_category_progress(category, url, f"Title found: {title[:50]}...")
-            except TimeoutException:
-                log_scrape_status(f"{Fore.RED}❌ [ERROR] Title element timeout for {url}{Style.RESET_ALL}")
-                log_category_progress(category, url, f"ERROR: Title element timeout for {url}")
-                title = "Title Not Found"
-            finally:
-                # Ensure we signal the thread to stop
-                if 'title_stop_event' in locals():
-                    title_stop_event.set()
-                    log_debug("Title heartbeat stop event set")
+            # Wait for page to load
+            time.sleep(2)
             
-            # Wait for content to load with heartbeat
-            try:
-                log_debug(f"Starting content extraction for: {url}")
-                log_scrape_status(f"🔍 Searching for content using: {content_selector}")
-                log_category_progress(category, url, f"Searching for content using: {content_selector}")
-                content_stop_event = threading.Event()
-                
-                def content_heartbeat():
-                    elapsed = 0
-                    while not content_stop_event.is_set() and elapsed < MAX_WAIT_TIME:
-                        print(f"Waiting for content... {elapsed}s elapsed")
-                        time.sleep(5)
-                        elapsed += 5
-                    log_debug(f"Content heartbeat thread ending. Stop event set: {content_stop_event.is_set()}")
-                
-                heartbeat_thread = threading.Thread(target=content_heartbeat)
-                heartbeat_thread.daemon = True
-                heartbeat_thread.start()
-                
-                log_debug(f"Waiting for content element using selector: {content_selector} (is_id={is_id})")
-                if is_id:
-                    content_div = WebDriverWait(driver, MAX_WAIT_TIME).until(
-                        EC.presence_of_element_located((By.ID, content_selector))
-                    )
-                else:
-                    content_div = WebDriverWait(driver, MAX_WAIT_TIME).until(
-                        EC.presence_of_element_located((By.CLASS_NAME, content_selector))
-                    )
-                
-                # Signal the heartbeat thread to stop
-                content_stop_event.set()
-                log_debug("Content element found, stopping heartbeat thread")
-                
-                log_debug("Extracting text from paragraphs")
-                paragraphs = [p.text.strip() for p in content_div.find_elements(By.TAG_NAME, "p")]
-                log_debug(f"Found {len(paragraphs)} paragraphs")
-                content = "\n".join(paragraphs)
-                log_scrape_status(f"✅ Content found: {len(content)} characters")
-                log_category_progress(category, url, f"Content found: {len(content)} characters")
-            except TimeoutException:
-                log_scrape_status(f"{Fore.RED}❌ [ERROR] Content element timeout for {url}{Style.RESET_ALL}")
-                log_category_progress(category, url, f"ERROR: Content element timeout for {url}")
-                content = "Content Not Found"
-            finally:
-                # Ensure we signal the thread to stop
-                if 'content_stop_event' in locals():
-                    content_stop_event.set()
-                    log_debug("Content heartbeat stop event set")
-
-            log_debug(f"Checking content validity - Title found: {title != 'Title Not Found'}, Content found: {content != 'Content Not Found'}")
-            log_scrape_status(f"📋 Validation - Title: {'✅' if title != 'Title Not Found' else '❌'}, Content: {'✅' if content != 'Content Not Found' else '❌'}")
-            log_category_progress(category, url, f"Validation - Title: {'✅' if title != 'Title Not Found' else '❌'}, Content: {'✅' if content != 'Content Not Found' else '❌'}")
+            # Extract title using provided selector
+            title = extract_title(driver, title_selector) if title_selector else extract_title(driver)
             
-            if title != "Title Not Found" and content != "Content Not Found":
-                # Include title, content, URL, and category in article data
-                article_data = {
-                    "title": title,
-                    "content": content,
-                    "url": url,
-                    "category": category
-                }
-
-                log_debug(f"Preparing to save article data for: {url}")
-                log_scrape_status(f"💾 Saving article for: {url}")
-                log_category_progress(category, url, f"Saving article data")
+            if not title:
+                log_error(f"Failed to extract title from {url}")
+                close_driver(driver)
+                driver = None
+                retry_count += 1
+                continue
                 
-                save_article_data(category, article_data, url)  # Pass URL separately
+            # Extract content using provided selector
+            content = extract_content(driver, content_selector, is_id) if content_selector else extract_content(driver)
+            
+            if not content:
+                log_error(f"Failed to extract content from {url}")
+                close_driver(driver)
+                driver = None
+                retry_count += 1
+                continue
+            
+            # Create article data
+            from datetime import datetime
+            article_data = {
+                "url": url,
+                "title": title,
+                "content": content,
+                "category": category,
+                "domain": domain,
+                "extraction_method": "generic",
+                "date_extracted": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            # Log success
+            log_scrape_status(f"{Fore.GREEN}Successfully extracted article: {title}{Style.RESET_ALL}")
+            
+            if log_progress:
+                log_category_progress(category, 1, 1, 1, 0)
                 
-                print(f"{Fore.GREEN}✓ Saved article: {title[:50]}...{Style.RESET_ALL}")
-                log_debug(f"Returning article data for: {url}")
-                log_scrape_status(f"✅ Article data ready for: {url}")
-                log_category_progress(category, url, f"Article data ready")
-                return article_data
-            else:
-                log_scrape_status(f"❌ Failed to extract complete article from: {url}")
-                log_category_progress(category, url, f"ERROR: Failed to extract complete article from: {url}")
-                raise Exception(f"Title or Content Not Found. Title found: {title != 'Title Not Found'}, Content found: {content != 'Content Not Found'}")
-
+            return article_data
+            
         except Exception as e:
-            error_msg = f"Failed to scrape: {str(e)}"
-            log_scrape_status(f"{Fore.RED}❌ [ERROR] {error_msg}{Style.RESET_ALL}")
-            log_category_progress(category, url, f"ERROR: {error_msg}")
+            log_error(f"Error extracting content from {url}: {str(e)}")
+            retry_count += 1
             
-            # Save page source for debugging
-            try:
-                if driver:
-                    log_debug(f"Saving debug HTML for failed URL: {url}")
-                    html_debug_file = f"debug_generic_{int(time.time())}.html"
-                    with open(html_debug_file, "w", encoding="utf-8") as f:
-                        f.write(driver.page_source)
-                    log_debug(f"Debug HTML saved to: {html_debug_file}")
-                    log_category_progress(category, url, f"Debug HTML saved to: {html_debug_file}")
-                    
-                    # Log the error with HTML file reference
-                    log_category_error(category, url, error_msg, html_debug_file)
-            except Exception as debug_err:
-                log_debug(f"Failed to save debug HTML: {str(debug_err)}")
-                log_category_progress(category, url, f"Failed to save debug HTML: {str(debug_err)}")
-                log_category_error(category, url, f"{error_msg}; Failed to save debug HTML: {str(debug_err)}")
+            if retry_count < max_retries:
+                log_debug(f"Retrying... ({retry_count}/{max_retries})")
+                time.sleep(2 * retry_count)  # Exponential backoff
             
-            raise  # Re-raise for retry decorator
-    finally:
-        if driver:  # Check if driver exists before quitting
-            try:
-                log_debug(f"Attempting to quit driver for: {url}")
-                log_category_progress(category, url, "Closing Chrome driver")
-                driver.quit()
-                log_debug(f"Driver successfully closed for: {url}")
-            except Exception as driver_err:
-                error_msg = f"Failed to close driver: {str(driver_err)}"
-                log_scrape_status(f"{Fore.YELLOW}⚠️ [WARNING] {error_msg}{Style.RESET_ALL}")
-                log_category_progress(category, url, f"WARNING: {error_msg}")
-                log_category_error(category, url, error_msg, html_debug_file)
-        log_scrape_status(f"🏁 Browser closed for: {url}. Ready for next URL.")
-        log_category_progress(category, url, "Browser closed, ready for next URL", is_end=True)
+        finally:
+            if driver:
+                close_driver(driver)
+                driver = None
+    
+    if log_progress:
+        log_category_progress(category, 1, 1, 0, 1)
+    
+    return None
+
+def extract_title(driver: webdriver.Chrome, custom_selector: str = None) -> str:
+    """
+    Extract article title using provided or default selectors.
+    
+    Args:
+        driver: Selenium WebDriver instance
+        custom_selector: Custom CSS selector for the title element
+        
+    Returns:
+        Article title as string
+    """
+    if custom_selector:
+        try:
+            element = driver.find_element(By.CSS_SELECTOR, custom_selector)
+            title = element.text.strip()
+            if title:
+                return title
+        except:
+            pass
+
+    # Fall back to default selectors
+    # Common title selectors to try
+    title_selectors = [
+        ("h1", By.TAG_NAME),
+        ("h1.title", By.CSS_SELECTOR),
+        ("h1.article-title", By.CSS_SELECTOR),
+        ("h1.entry-title", By.CSS_SELECTOR),
+        ("h1.post-title", By.CSS_SELECTOR),
+        ("article h1", By.CSS_SELECTOR),
+        (".article-title", By.CSS_SELECTOR),
+        (".entry-title", By.CSS_SELECTOR),
+        (".post-title", By.CSS_SELECTOR),
+        (".headline", By.CSS_SELECTOR),
+        ("meta[property='og:title']", By.CSS_SELECTOR, "content"),  # Meta tag
+        ("title", By.TAG_NAME)  # Last resort
+    ]
+    
+    for selector in title_selectors:
+        try:
+            if len(selector) == 2:
+                selector_text, selector_type = selector
+                element = driver.find_element(selector_type, selector_text)
+                title = element.text.strip()
+                if title:
+                    return title
+            else:
+                selector_text, selector_type, attribute = selector
+                element = driver.find_element(selector_type, selector_text)
+                title = element.get_attribute(attribute).strip()
+                if title:
+                    return title
+        except:
+            continue
+            
+    # Last resort - get page title
+    try:
+        return driver.title.strip()
+    except:
+        return "Unknown Title"
+
+def extract_content(driver: webdriver.Chrome, custom_selector: str = None, is_id: bool = False) -> str:
+    """
+    Extract article content using provided or default selectors.
+    
+    Args:
+        driver: Selenium WebDriver instance
+        custom_selector: Custom CSS selector for the content element
+        is_id: Whether to use ID instead of CSS selector for content
+        
+    Returns:
+        Article content as string
+    """
+    if custom_selector:
+        try:
+            if is_id:
+                element = driver.find_element(By.ID, custom_selector)
+            else:
+                element = driver.find_element(By.CSS_SELECTOR, custom_selector)
+            paragraphs = element.find_elements(By.TAG_NAME, "p")
+            if paragraphs:
+                content = "\n\n".join(p.text.strip() for p in paragraphs if p.text.strip())
+                if content:
+                    return content
+        except:
+            pass
+
+    # Fall back to default selectors
+    # Common content selectors to try
+    content_selectors = [
+        ("article", By.TAG_NAME),
+        ("div.article-content", By.CSS_SELECTOR),
+        ("div.entry-content", By.CSS_SELECTOR),
+        ("div.post-content", By.CSS_SELECTOR),
+        ("div.content", By.CSS_SELECTOR),
+        (".article-body", By.CSS_SELECTOR),
+        ("#article-body", By.CSS_SELECTOR),
+        (".entry-content", By.CSS_SELECTOR),
+        (".post-content", By.CSS_SELECTOR),
+        (".story-body", By.CSS_SELECTOR),
+        ("main", By.TAG_NAME)
+    ]
+    
+    for selector_text, selector_type in content_selectors:
+        try:
+            element = driver.find_element(selector_type, selector_text)
+            paragraphs = element.find_elements(By.TAG_NAME, "p")
+            
+            if paragraphs:
+                # Join paragraph texts into a single string
+                content = "\n\n".join(p.text.strip() for p in paragraphs if p.text.strip())
+                if content:
+                    return content
+        except:
+            continue
+            
+    # Last resort - get all paragraphs from the page
+    try:
+        paragraphs = driver.find_elements(By.TAG_NAME, "p")
+        if paragraphs:
+            return "\n\n".join(p.text.strip() for p in paragraphs if p.text.strip())
+    except:
+        pass
+        
+    return "Could not extract content."

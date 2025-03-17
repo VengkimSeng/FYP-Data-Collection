@@ -46,7 +46,6 @@ def main():
     categories_file = "config/categories.json"
     urls_dir = "output/urls"
     test_urls_dir = "output/test_urls"
-    test_results_dir = "output/test_results"
     
     # First check if the output folder exists, create it if not
     if not os.path.exists("output"):
@@ -70,7 +69,7 @@ def main():
         logger.info(f"Loaded {len(category_names)} categories from {categories_file}")
         
         # Create directories and empty JSON files
-        for directory in [urls_dir, test_urls_dir, test_results_dir]:
+        for directory in [urls_dir, test_urls_dir]:
             os.makedirs(directory, exist_ok=True)
             logger.info(f"Ensured directory exists: {directory}")
             create_empty_json_files(category_names, directory)

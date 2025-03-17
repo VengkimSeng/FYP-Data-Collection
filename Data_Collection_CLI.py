@@ -4,10 +4,8 @@ Data Collection CLI
 
 A terminal-based interface for controlling the FYP data collection process.
 Features:
-- Run full workflow (crawl + extract)
 - Run individual components (crawl only, extract only)
 - Configure settings (URL count, extract workers)
-- Resume from previous state
 - Control specific categories
 - Test crawlers
 - Sync folders
@@ -273,219 +271,39 @@ def sync_folders():
 def run_tests():
     """Run crawler tests
     
-    Executes the test_crawler module to validate that crawlers are functioning correctly.
-    This runs in interactive mode, letting the user select which test to run.
+    Executes the full test suite for all crawlers.
     
     Returns:
         bool: True if tests completed successfully, False otherwise
     """
-    print(f"{Fore.YELLOW}Running crawler tests{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}Running full crawler test suite...{Style.RESET_ALL}")
     
-    # Ask about resetting the test_urls directory
-    reset_test_dir = input(f"{Fore.YELLOW}Reset test_urls directory before running tests? (y/n): {Style.RESET_ALL}")
-    if reset_test_dir.lower() == 'y':
-        # Reset the test_urls directory
-        test_dir = "output/test_urls"
-        print(f"{Fore.CYAN}Resetting {test_dir} directory...{Style.RESET_ALL}")
-        command = [
-            "python3", "src/tests/test_crawler.py",
-            "--reset", "--no-confirm",
-            "--output-dir", test_dir
-        ]
-        
-        if not run_command(command, "Reset test directory"):
-            print(f"{Fore.RED}Failed to reset test directory. Continue anyway? (y/n): {Style.RESET_ALL}")
-            if input().lower() != 'y':
-                return False
-    
-    # Show enhanced test menu with more options
-    test_mode = select_test_mode()
-    if test_mode is None:
-        return False
-    
-    # Directly use test_crawler.py
-    command = ["python3", "src/tests/test_crawler.py"]
-    
-    # Add output-dir to the command to use test_urls directory
-    if "--output-dir" not in test_mode["params"]:
-        command.extend(["--output-dir", "output/test_urls"])
-    
-    # Add options based on test mode
-    for param, value in test_mode["params"].items():
-        if isinstance(value, bool) and value:
-            command.append(f"--{param}")
-        elif not isinstance(value, bool) and value is not None:
-            command.append(f"--{param}")
-            if isinstance(value, list):
-                command.extend(value)
-            else:
-                command.append(str(value))
-    
-    # Add specific crawler/category if needed
-    if test_mode["type"] == "specific" and "crawler" not in test_mode["params"]:
-        crawler, category = select_test_target()
-        if crawler is None or category is None:
-            return False
-        command.extend(["--crawler", crawler, "--category", category])
+    # Directly run full test suite with all crawlers
+    command = [
+        "python3", "src/tests/test_crawler.py",
+        "--full",
+        "--report",
+        "--output-dir", "output/test_urls"
+    ]
     
     print(f"{Fore.CYAN}Executing: {' '.join(command)}{Style.RESET_ALL}")
-    return run_command(command, f"Crawler {test_mode['name']} tests")
+    return run_command(command, f"Full crawler test suite")
 
-def select_test_mode():
-    """Select test mode with enhanced options."""
-    print(f"\n{Fore.GREEN}Select Test Type:{Style.RESET_ALL}")
-    print(f"  {Fore.CYAN}Standard Tests:{Style.RESET_ALL}")
-    print("  1. Test specific crawler and category")
-    print("  2. Test all crawlers")
-    print("  3. Test master controller")
-    print("  4. Test crawl_urls function")
-    print(f"  {Fore.CYAN}Comprehensive Tests:{Style.RESET_ALL}")
-    print("  5. Run full test suite (all crawlers, all tests)")
-    print("  6. Run full test suite with parallel execution")
-    print("  0. Cancel")
+def run_extraction_tests():
+    """Run extraction tests
     
-    try:
-        choice = int(input(f"{Fore.YELLOW}Select an option (0-6): {Style.RESET_ALL}"))
-        
-        # Common options
-        reset_output = False
-        
-        # Ask about resetting output directory for all test modes except cancellation
-        if choice != 0:
-            if input(f"{Fore.YELLOW}Reset output/urls directory before testing? (y/n): {Style.RESET_ALL}").lower() == 'y':
-                reset_output = True
-                print(f"{Fore.YELLOW}Output directory will be reset before testing.{Style.RESET_ALL}")
-        
-        if choice == 0:
-            return None
-        elif choice == 1:
-            # Test specific crawler and category
-            return {
-                "type": "specific",
-                "name": "specific crawler-category",
-                "params": {
-                    "reset": reset_output,
-                    "report": True
-                }
-            }
-        elif choice == 2:
-            # Test all crawlers
-            return {
-                "type": "all",
-                "name": "all crawlers",
-                "params": {
-                    "full": True,
-                    "reset": reset_output,
-                    "report": True
-                }
-            }
-        elif choice == 3:
-            # Test master controller
-            return {
-                "type": "master",
-                "name": "master controller",
-                "params": {
-                    "test-master": True,
-                    "reset": reset_output,
-                    "report": True
-                }
-            }
-        elif choice == 4:
-            # Test crawl_urls function
-            return {
-                "type": "crawl_urls",
-                "name": "crawl_urls function",
-                "params": {
-                    "test-crawl-urls": True,
-                    "reset": reset_output
-                }
-            }
-        elif choice == 5:
-            # Run full comprehensive test suite
-            return {
-                "type": "full_suite",
-                "name": "comprehensive",
-                "params": {
-                    "full": True,
-                    "report": True,
-                    "reset": reset_output
-                }
-            }
-        elif choice == 6:
-            # Run full test suite with parallel execution
-            workers = int(input(f"{Fore.YELLOW}Enter number of parallel workers (2-8): {Style.RESET_ALL}") or "4")
-            return {
-                "type": "full_parallel",
-                "name": "parallel comprehensive",
-                "params": {
-                    "full": True,
-                    "parallel": True,
-                    "workers": workers,
-                    "report": True,
-                    "reset": reset_output
-                }
-            }
-        else:
-            print(f"{Fore.RED}Invalid selection.{Style.RESET_ALL}")
-            return None
-    except ValueError:
-        print(f"{Fore.RED}Please enter a valid number.{Style.RESET_ALL}")
-        return None
-
-def select_test_target():
-    """Select crawler and category for testing."""
-    # Load available crawlers
-    try:
-        crawler_dir = os.path.join("src", "crawlers", "Urls_Crawler")
-        crawlers = []
-        for file in os.listdir(crawler_dir):
-            if file.endswith("_crawler.py"):
-                crawler_name = file.replace("_crawler.py", "").lower()
-                crawlers.append(crawler_name)
-        
-        if not crawlers:
-            print(f"{Fore.RED}No crawlers found.{Style.RESET_ALL}")
-            return None, None
-            
-        # Display crawlers
-        print(f"\n{Fore.GREEN}Select crawler:{Style.RESET_ALL}")
-        for idx, crawler in enumerate(crawlers, 1):
-            print(f"  {idx}. {crawler}")
-        print(f"  0. Cancel")
-        
-        try:
-            choice = int(input(f"{Fore.YELLOW}Select a crawler (0-{len(crawlers)}): {Style.RESET_ALL}"))
-            if choice == 0:
-                return None, None
-            elif 1 <= choice <= len(crawlers):
-                crawler = crawlers[choice - 1]
-                
-                # Now get categories from the selected crawler
-                categories = load_categories()
-                if not categories:
-                    print(f"{Fore.RED}Failed to load categories.{Style.RESET_ALL}")
-                    return None, None
-                
-                print(f"\n{Fore.GREEN}Select category for {crawler}:{Style.RESET_ALL}")
-                for idx, category in enumerate(categories, 1):
-                    print(f"  {idx}. {category}")
-                print(f"  0. Cancel")
-                
-                choice = int(input(f"{Fore.YELLOW}Select a category (0-{len(categories)}): {Style.RESET_ALL}"))
-                if choice == 0:
-                    return None, None
-                elif 1 <= choice <= len(categories):
-                    return crawler, categories[choice - 1]
-            else:
-                print(f"{Fore.RED}Invalid selection.{Style.RESET_ALL}")
-                return None, None
-        except ValueError:
-            print(f"{Fore.RED}Please enter a valid number.{Style.RESET_ALL}")
-            return None, None
-                
-    except Exception as e:
-        print(f"{Fore.RED}Error loading crawlers: {str(e)}{Style.RESET_ALL}")
-        return None, None
+    Executes the extraction test suite to verify content extraction is working properly.
+    
+    Returns:
+        bool: True if tests completed successfully, False otherwise
+    """
+    print(f"{Fore.YELLOW}Running extraction test suite...{Style.RESET_ALL}")
+    
+    # Run the full test suite with report generation enabled
+    command = ["python3", "src/tests/test_extractor.py", "--report"]
+    
+    print(f"{Fore.CYAN}Executing: {' '.join(command)}{Style.RESET_ALL}")
+    return run_command(command, "Extraction test suite")
 
 def crawl_urls(categories=None, resume=False):
     """Run the URL crawl process
@@ -731,33 +549,26 @@ def main_menu():
     routing user requests to the appropriate handlers.
     
     The main menu provides options for:
-    - Running the full workflow
     - Running individual components
-    - Resuming interrupted operations
     - Testing crawlers
     - Synchronizing folders
     - Configuring settings
-    - Resetting URLs directory
-    
-    The menu runs in a loop until the user chooses to exit.
     """
     while True:
         print_header()
         print(f"{Fore.GREEN}Main Menu:{Style.RESET_ALL}")
-        print("  1. Run full workflow (crawl + extract)")
-        print("  2. Crawl URLs only")
-        print("  3. Extract content only")
-        print("  4. Resume from interrupted workflow")
-        print("  5. Test crawlers")
-        print("  6. Sync categories and folders")
-        print("  7. Configure settings")
-        print(f"  8. {Fore.RED}Reset URLs directory{Style.RESET_ALL}")
+        print("  1. Crawl URLs only")
+        print("  2. Extract content only")
+        print("  3. Test crawlers")
+        print("  4. Test extraction")
+        print("  5. Sync categories and folders")
+        print("  6. Configure settings")
         print("  0. Exit")
         
         print_status()
         
         try:
-            choice = int(input(f"{Fore.YELLOW}Select an option (0-8): {Style.RESET_ALL}"))
+            choice = int(input(f"{Fore.YELLOW}Select an option (0-6): {Style.RESET_ALL}"))
             
             # Reset stop flag when starting a new operation
             CONFIG["stop_requested"] = False
@@ -765,47 +576,24 @@ def main_menu():
             if choice == 0:
                 print(f"{Fore.GREEN}Exiting program. Goodbye!{Style.RESET_ALL}")
                 sys.exit(0)
-            elif choice == 1:  # Full workflow
-                categories = select_categories()
-                if categories is not None:
-                    run_full_workflow(categories, resume=False)
-            elif choice == 2:  # Crawl URLs only
+            elif choice == 1:  # Crawl URLs only
                 categories = select_categories()
                 if categories is not None:
                     crawl_urls(categories, resume=False)
-            elif choice == 3:  # Extract content only
+            elif choice == 2:  # Extract content only
                 categories = select_categories()
                 if categories is not None:
                     extract_content(categories, resume=True)
-            elif choice == 4:  # Resume workflow
-                print(f"{Fore.CYAN}Resume from:{Style.RESET_ALL}")
-                print("  1. Crawling")
-                print("  2. Extraction")
-                print("  3. Full workflow")
-                print("  0. Cancel")
-                
-                try:
-                    resume_choice = int(input(f"{Fore.YELLOW}Select an option (0-3): {Style.RESET_ALL}"))
-                    categories = select_categories() if resume_choice > 0 else None
-                    
-                    if resume_choice == 1 and categories is not None:
-                        crawl_urls(categories, resume=True)
-                    elif resume_choice == 2 and categories is not None:
-                        extract_content(categories, resume=True)
-                    elif resume_choice == 3 and categories is not None:
-                        run_full_workflow(categories, resume=True)
-                except ValueError:
-                    print(f"{Fore.RED}Please enter a valid number.{Style.RESET_ALL}")
-            elif choice == 5:  # Test crawlers
+            elif choice == 3:  # Test crawlers
                 run_tests()
-            elif choice == 6:  # Sync folders
+            elif choice == 4:  # Test extraction
+                run_extraction_tests()
+            elif choice == 5:  # Sync folders
                 sync_folders()
-            elif choice == 7:  # Configure settings
+            elif choice == 6:  # Configure settings
                 configure_settings()
-            elif choice == 8:  # Reset URLs directory
-                reset_urls_directory()
             else:
-                print(f"{Fore.RED}Invalid selection. Please enter a number between 0 and 8.{Style.RESET_ALL}")
+                print(f"{Fore.RED}Invalid selection. Please enter a number between 0 and 6.{Style.RESET_ALL}")
             
             if not CONFIG["stop_requested"]:
                 input(f"\n{Fore.GREEN}Press Enter to return to main menu...{Style.RESET_ALL}")
@@ -817,34 +605,6 @@ def main_menu():
             print(f"{Fore.RED}An error occurred: {str(e)}{Style.RESET_ALL}")
             print(traceback.format_exc())
             input(f"\n{Fore.GREEN}Press Enter to continue...{Style.RESET_ALL}")
-
-def reset_urls_directory():
-    """Reset the URLs directory
-    
-    Clears all collected URLs from the URLs directory after confirmation.
-    This is useful when starting fresh data collection or when troubleshooting.
-    
-    Returns:
-        bool: True if reset was successful, False otherwise
-    """
-    print(f"{Fore.RED}Warning: This will delete all collected URLs from {CONFIG['urls_dir']}{Style.RESET_ALL}")
-    confirm = input(f"{Fore.YELLOW}Are you sure you want to continue? (y/n): {Style.RESET_ALL}")
-    
-    if confirm.lower() != 'y':
-        print(f"{Fore.GREEN}Reset cancelled.{Style.RESET_ALL}")
-        return False
-        
-    try:
-        # Run reset command using the modular testing approach
-        command = [
-            "python3", "src/tests/test_crawler.py",
-            "--reset", "--no-confirm",
-            "--output-dir", CONFIG["urls_dir"]
-        ]
-        return run_command(command, "Reset URLs directory")
-    except Exception as e:
-        print(f"{Fore.RED}Error resetting URLs directory: {str(e)}{Style.RESET_ALL}")
-        return False
 
 if __name__ == "__main__":
     try:

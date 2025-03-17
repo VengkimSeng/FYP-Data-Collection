@@ -1,89 +1,140 @@
 """
-General utility functions for the article crawler.
+Utility functions for the article extractor.
 """
 
 import os
 import json
-import threading
-import functools
 import time
-import traceback
+from typing import Dict, List, Any
 from functools import wraps
-from colorama import Fore, Style
-from urllib.parse import urlparse
+from src.extractors.config import CHECKPOINT_FILE
+from src.extractors.logger import log_debug
 
-from src.extractors.config import CHECKPOINT_FILE, MAX_RETRIES, RETRY_DELAY
-from src.extractors.logger import log_scrape_status, log_debug
-
-# Thread-safe lock for checkpoint operations
-checkpoint_lock = threading.Lock()
-
-def load_checkpoint():
-    """Load checkpoint data that tracks URLs that have been scraped."""
+def load_checkpoint() -> Dict[str, Any]:
+    """
+    Load checkpoint data from file.
+    
+    Returns:
+        Checkpoint data as dictionary
+    """
     if os.path.exists(CHECKPOINT_FILE):
         try:
-            with open(CHECKPOINT_FILE, "r", encoding="utf-8") as file:
-                return json.load(file)
-        except json.JSONDecodeError:
-            print(f"{Fore.YELLOW}Warning: Checkpoint file corrupted, resetting...{Style.RESET_ALL}")
-            return {}
+            with open(CHECKPOINT_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            log_debug(f"Error loading checkpoint: {e}")
     return {}
 
-def is_scraped(category, url):
-    """Check if a URL has already been scraped for a category."""
-    checkpoint_data = load_checkpoint()
-    return category in checkpoint_data and url in checkpoint_data[category]
-
-def update_checkpoint(category, url):
-    """Update checkpoint after successfully scraping a URL."""
-    with checkpoint_lock:
-        log_debug(f"Updating checkpoint for {category}: {url}")
-        checkpoint_data = load_checkpoint()
-        if category not in checkpoint_data:
-            checkpoint_data[category] = []
-        checkpoint_data[category].append(url)
+def update_checkpoint(data: Dict[str, Any]) -> bool:
+    """
+    Update checkpoint data in file.
+    
+    Args:
+        data: Checkpoint data to save
         
-        try:
-            with open(CHECKPOINT_FILE, "w", encoding="utf-8") as file:
-                json.dump(checkpoint_data, file, ensure_ascii=False, indent=4)
-            log_debug(f"Checkpoint updated successfully: {CHECKPOINT_FILE}")
-        except Exception as e:
-            log_scrape_status(f"{Fore.RED}[ERROR] Failed to update checkpoint: {str(e)}{Style.RESET_ALL}")
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(CHECKPOINT_FILE), exist_ok=True)
+        
+        # Merge with existing checkpoint data
+        checkpoint = load_checkpoint()
+        checkpoint.update(data)
+        
+        # Write to temporary file first
+        temp_file = f"{CHECKPOINT_FILE}.tmp"
+        with open(temp_file, 'w', encoding='utf-8') as f:
+            json.dump(checkpoint, f, indent=2)
+            
+        # Atomic replace
+        os.replace(temp_file, CHECKPOINT_FILE)
+        return True
+    except Exception as e:
+        log_debug(f"Error updating checkpoint: {e}")
+        return False
 
-def retry_on_exception(max_retries=None, delay=None):
-    """Decorator to retry functions on failure."""
+def get_url_hostname(url: str) -> str:
+    """
+    Extract hostname from URL.
+    
+    Args:
+        url: URL to parse
+        
+    Returns:
+        Hostname part of the URL
+    """
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(url)
+        return parsed.netloc
+    except:
+        return ""
+
+def format_timestamp(timestamp: float) -> str:
+    """
+    Format a Unix timestamp as string.
+    
+    Args:
+        timestamp: Unix timestamp
+        
+    Returns:
+        Formatted timestamp string
+    """
+    from datetime import datetime
+    dt = datetime.fromtimestamp(timestamp)
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+def is_scraped(url: str, category: str = None) -> bool:
+    """
+    Check if a URL has already been scraped.
+    
+    Args:
+        url: URL to check
+        category: Optional category to check specifically
+        
+    Returns:
+        True if the URL has been scraped, False otherwise
+    """
+    checkpoint = load_checkpoint()
+    processed_urls = checkpoint.get('processed_urls', [])
+    
+    # If category is specified, check category-specific processing
+    if category and 'category_urls' in checkpoint:
+        category_urls = checkpoint['category_urls'].get(category, [])
+        return url in category_urls
+        
+    # Otherwise check global processed URLs
+    return url in processed_urls
+
+def retry_on_exception(max_retries=3, delay=2):
+    """
+    Decorator to retry a function on exception.
+    
+    Args:
+        max_retries: Maximum number of retry attempts
+        delay: Time to wait between retries in seconds
+        
+    Returns:
+        Decorated function that will retry on exception
+    """
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # Always use global MAX_RETRIES and RETRY_DELAY regardless of parameters
             retries = 0
-            while retries < MAX_RETRIES:
+            while retries < max_retries:
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
                     retries += 1
-                    if retries >= MAX_RETRIES:
-                        log_scrape_status(f"{Fore.RED}[ERROR] Max retries reached ({MAX_RETRIES}) for {func.__name__}: {e}{Style.RESET_ALL}")
+                    if retries >= max_retries:
+                        log_debug(f"Max retries reached ({max_retries}) for {func.__name__}: {e}")
                         raise
-                    log_scrape_status(f"{Fore.YELLOW}[RETRY] Attempt {retries}/{MAX_RETRIES} for {func.__name__}: {e}{Style.RESET_ALL}")
                     
-                    # Try to forcefully restart WebDriver if it's a WebDriver issue
-                    if "driver" in kwargs:
-                        try:
-                            kwargs["driver"].quit()
-                        except:
-                            pass
-                    
-                    time.sleep(RETRY_DELAY)
-            return None
+                    log_debug(f"Retry {retries}/{max_retries} for {func.__name__}: {e}")
+                    time.sleep(delay)
+            
+            return None  # Should never reach here
         return wrapper
     return decorator
-
-def get_base_url(url):
-    """Extract base URL from a full URL."""
-    parsed = urlparse(url)
-    return f"{parsed.scheme}://{parsed.netloc}"
-
-def get_domain(url):
-    """Extract domain from URL."""
-    return urlparse(url).netloc

@@ -32,12 +32,12 @@ env/
 *.swo
 
 # Project specific
-output/urls/*
-output/articles/*
-output/logs/*
-!output/urls/.gitkeep
-!output/articles/.gitkeep
-!output/logs/.gitkeep
+# output/urls/*
+# output/articles/*
+# output/logs/*
+# !output/urls/.gitkeep
+# !output/articles/.gitkeep
+# !output/logs/.gitkeep
 
 # Chrome driver
 chromedriver
@@ -49,9 +49,5 @@ chromedriver.exe
 *.tmp
 *.log
 
-/output/
-<<<<<<< HEAD
-/output/**
-=======
-/output/**
->>>>>>> d8c146afee34cddaffe22415ad32a2f9f564623d
+# /output/
+# /output/**

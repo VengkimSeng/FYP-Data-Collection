@@ -103,23 +103,48 @@ def filter_btv_urls(urls: Set[str], category: str) -> list:
     # Standardize all URLs to the same format: https://btv.com.kh/article/{id}/
     result = set()
     for url in urls:
+        # Ensure URL is from BTV domain
+        parsed = urlparse(url)
+        if not parsed.netloc.endswith('btv.com.kh'):
+            logger.debug(f"Skipping non-BTV URL: {url}")
+            continue
+            
+        # Check for article pattern
         if match := re.search(r'/article/(\d+)', url):
             article_id = match.group(1)
             # Ensure URL has consistent format with trailing slash
             clean_url = f"https://{btv_domain}/article/{article_id}/"
             result.add(clean_url)
-    
+        else:
+            logger.debug(f"Skipping non-article URL: {url}")
+            
     logger.info(f"Standardized to {len(result)} article URLs")
     
+    # Filter out pagination, category, tag, and search pages
+    filtered_result = set()
+    for url in result:
+        # Skip URLs with pagination parameters
+        if "?page=" in url or "&page=" in url:
+            logger.debug(f"Skipping pagination URL: {url}")
+            continue
+            
+        # Skip URLs with common non-article patterns
+        if any(pattern in url for pattern in ['/category/', '/tag/', '/search/', '/page/']):
+            logger.debug(f"Skipping non-article section URL: {url}")
+            continue
+        
+        # Include the URL if it passes all filters
+        filtered_result.add(url)
+    
     # Log some sample results for debugging
-    if result:
-        sample = list(result)[:5]
+    if filtered_result:
+        sample = list(filtered_result)[:5]
         logger.debug(f"Sample filtered URLs: {sample}")
     else:
         logger.warning(f"All URLs were filtered out")
     
-    logger.info(f"Filtered {len(urls)} URLs down to {len(result)} valid articles")
-    return list(result)  # Convert set to list before returning
+    logger.info(f"Filtered {len(urls)} URLs down to {len(filtered_result)} valid articles")
+    return list(filtered_result)  # Convert set to list before returning
 
 def crawl_category(source_url: str, category: str, max_pages: int = -1) -> Set[str]:
     """

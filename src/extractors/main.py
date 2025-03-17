@@ -18,14 +18,16 @@ import random
 from colorama import Fore, Style, init
 from datetime import datetime
 
-# Add parent directory to path to enable imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add the project root directory to the Python path to allow imports to work properly
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, project_root)
 
-# Import modules from the article_crawler package
+# Now import modules using absolute imports
 from src.extractors.config import CHECKPOINT_FILE, MAX_WAIT_TIME, MAX_RETRIES
 from src.extractors.logger import log_scrape_status, log_debug, ensure_log_directories
 from src.extractors.utils import load_checkpoint
 from src.extractors.file_processor import process_file
+from src.extractors.shutdown import setup_shutdown_handlers, check_for_shutdown
 
 # Import psutil for memory tracking
 try:
@@ -52,9 +54,9 @@ def parse_args():
     parser.add_argument("--reset-checkpoint", action="store_true",
                         help="Reset the checkpoint file")
     parser.add_argument("--input-dir", type=str, default="output/urls",
-                        help="Directory containing URL JSON files (default: Scrape_urls)")
+                        help="Directory containing URL JSON files (default: output/urls)")
     parser.add_argument("--output-dir", type=str, default="output/articles",
-                        help="Directory to save extracted articles (default: Article)")
+                        help="Directory to save extracted articles (default: output/articles)")
     parser.add_argument("--max-workers", type=int, default=6,
                         help="Maximum number of concurrent workers (default: 6)")
     parser.add_argument("--verbose", action="store_true",
@@ -74,23 +76,41 @@ def main():
     # Create log directories at startup
     ensure_log_directories()
     
+    # Setup shutdown handlers
+    setup_shutdown_handlers()
+    
     log_scrape_status(f"{Fore.GREEN}========================{Style.RESET_ALL}")
     log_scrape_status(f"{Fore.GREEN}STARTING ARTICLE CRAWLER{Style.RESET_ALL}")
     log_scrape_status(f"{Fore.GREEN}========================{Style.RESET_ALL}")
+    log_scrape_status(f"{Fore.GREEN}Process ID: {os.getpid()}{Style.RESET_ALL}")
     log_scrape_status(f"{Fore.CYAN}[INFO] Starting with MAX_WAIT_TIME={MAX_WAIT_TIME}s, MAX_RETRIES={MAX_RETRIES}{Style.RESET_ALL}")
     log_scrape_status(f"{Fore.CYAN}[INFO] Input directory: {args.input_dir}{Style.RESET_ALL}")
     log_scrape_status(f"{Fore.CYAN}[INFO] Output directory: {args.output_dir}{Style.RESET_ALL}")
     
+    # Ensure input and output directories exist
     input_folder = args.input_dir
+    output_folder = args.output_dir
+    
     if not os.path.exists(input_folder):
         log_scrape_status(f"{Fore.RED}[ERROR] Input folder '{input_folder}' not found!{Style.RESET_ALL}")
         return 1
+    
+    # Create output directory if it doesn't exist
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder, exist_ok=True)
+        log_scrape_status(f"{Fore.YELLOW}Created output directory: {output_folder}{Style.RESET_ALL}")
         
-    files = [os.path.join(input_folder, file) for file in os.listdir(input_folder) if file.endswith(".json")]
+    # Get JSON files from input directory
+    files = [os.path.join(input_folder, file) for file in os.listdir(input_folder) 
+             if file.endswith(".json") and os.path.isfile(os.path.join(input_folder, file))]
     log_scrape_status(f"Found {len(files)} URL files to process")
     
+    if not files:
+        log_scrape_status(f"{Fore.YELLOW}No JSON files found in input directory. Exiting.{Style.RESET_ALL}")
+        return 0
+    
     # Set the output directory in a module-level variable that scrapers can access
-    import storage
+    from src.extractors import storage
     storage.set_output_directory(args.output_dir)
     
     # Track results across all files
@@ -105,10 +125,16 @@ def main():
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all files for processing
-        future_to_file = {executor.submit(process_file, file): file for file in files}
+        future_to_file = {executor.submit(process_file, file, output_dir=output_folder, verbose=args.verbose): file for file in files}
         
         # Process results as they complete
         for future in concurrent.futures.as_completed(future_to_file):
+            # Check for shutdown request periodically
+            if check_for_shutdown():
+                log_scrape_status(f"{Fore.YELLOW}Shutdown requested. Stopping processing.{Style.RESET_ALL}")
+                executor.shutdown(wait=False)  # Stop accepting new tasks
+                break
+                
             file = future_to_file[future]
             category = os.path.splitext(os.path.basename(file))[0]
             try:

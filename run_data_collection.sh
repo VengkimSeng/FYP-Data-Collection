@@ -1,81 +1,50 @@
 #!/bin/bash
-# Run Data Collection CLI
-#
-# This script provides a convenient way to run the Data Collection CLI
-# from any directory, ensuring correct environment setup.
-#
-# Usage:
-#   ./run_data_collection.sh [options]
-#
-# Example:
-#   ./run_data_collection.sh --urls-per-category 1000
 
-# Exit on error
+# Data Collection Script Launcher
+# This script launches the Data Collection CLI and ensures all dependencies are in place
+
+# Set the script to exit on error
 set -e
 
-# Get the directory where this script is located
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-echo "Script directory: $SCRIPT_DIR"
+# Define colors
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
-# Change to project directory
-cd "$SCRIPT_DIR"
-echo "Working directory: $(pwd)"
+# Define the project root
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_ROOT"
 
-# Check if Python is available
-if ! command -v python3 &> /dev/null; then
-    echo "Error: Python 3 is required but not found."
-    echo "Please install Python 3 and try again."
-    exit 1
-fi
+echo -e "${BLUE}=== Khmer News Data Collection Tool ===${NC}"
+echo -e "${GREEN}Initializing...${NC}"
 
-# Check Python version
-PYTHON_VERSION=$(python3 -c 'import sys; print("{}.{}.{}".format(*sys.version_info[:3]))')
-echo "Python version: $PYTHON_VERSION"
-
-# Check if virtual environment exists and activate it if it does
-VENV_DIR="venv"
-if [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/activate" ]; then
-    echo "Activating virtual environment..."
-    source "$VENV_DIR/bin/activate"
-    USING_VENV=true
+# Check if virtual environment exists, create if not
+if [ ! -d "venv" ]; then
+    echo -e "${YELLOW}Virtual environment not found, creating...${NC}"
+    python3 -m venv venv
+    # Activate virtual environment
+    source venv/bin/activate
+    # Install requirements
+    echo -e "${GREEN}Installing dependencies...${NC}"
+    pip install -r requirements.txt
 else
-    echo "No virtual environment found. Using system Python."
-    USING_VENV=false
+    # Activate virtual environment
+    source venv/bin/activate
 fi
 
-# Check for required Python packages
-echo "Checking required packages..."
-REQUIREMENTS_FILE="requirements.txt"
-
-if [ -f "$REQUIREMENTS_FILE" ]; then
-    if [ "$USING_VENV" = true ]; then
-        # Check if pip install is needed
-        if pip list --outdated | grep -q "Package"; then
-            echo "Installing/updating required packages..."
-            pip install -r "$REQUIREMENTS_FILE"
-        fi
-    else
-        echo "Warning: Not running in virtual environment. Package dependencies not checked."
-    fi
-else
-    echo "Warning: requirements.txt not found. Cannot verify dependencies."
-fi
-
-# Create necessary directories if they don't exist
-echo "Ensuring required directories exist..."
-mkdir -p output/logs
-mkdir -p output/urls
+# Create necessary directories
+echo -e "${GREEN}Ensuring directories exist...${NC}"
 mkdir -p config
+mkdir -p output/urls
+mkdir -p output/articles
+mkdir -p output/test_reports
+mkdir -p logs
 
-# Check if config files exist
-if [ ! -f "config/categories.json" ]; then
-    echo "Warning: config/categories.json not found."
-fi
+# Run the main CLI script
+echo -e "${BLUE}Starting Data Collection tool...${NC}"
+python3 Data_Collection_CLI.py "$@"
 
-if [ ! -f "config/sources.json" ]; then
-    echo "Warning: config/sources.json not found."
-fi
-
-# Run the CLI with all arguments passed to this script
-echo "Starting Data Collection CLI..."
-exec python3 Data_Collection_CLI.py "$@"
+# Deactivate virtual environment when done
+deactivate

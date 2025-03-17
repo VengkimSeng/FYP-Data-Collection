@@ -155,32 +155,54 @@ def test_dapnews_filter(crawler_name: str) -> TestResult:
             return result.set_failure(Exception("filter_dapnews_urls function not found"), 
                                   f"Required filtering function not found")
         
-        # Prepare test URLs specifically for DapNews
+        # Prepare test URLs specifically for DapNews with correct structure
+        # Format: dap-news.com/category/year/month/day/number/
         test_urls = set([
-            "https://dap-news.com/2023/02/15/123456/",  # Good URL with date pattern
-            "https://dap-news.com/category/sport/",     # Bad URL (category page)
-            "https://dap-news.com/2023/01/10/789012/",  # Good URL with date pattern
-            "https://dap-news.com/tag/news/",           # Bad URL (tag page)
-            "https://other-domain.com/article/1"        # Bad URL (wrong domain)
+            "https://dap-news.com/economic/2020/07/08/67095/",       # Good URL with correct category
+            "https://dap-news.com/category/economic",                # Bad URL (category page)
+            "https://dap-news.com/economic/2021/01/10/789012/",      # Good URL with correct category
+            "https://dap-news.com/tag/economic",                     # Bad URL (tag page)
+            "https://dap-news.com/sport/2020/06/15/123456/",         # Good URL but wrong category
+            "https://other-domain.com/article/1"                     # Bad URL (wrong domain)
         ])
         
         # Run the filter function
         start_time = time.time()
-        filtered_urls = filter_func(test_urls, "sport")
+        filtered_urls = filter_func(test_urls, "economic")
         result.duration = time.time() - start_time
         
-        # Check results - expecting 2 URLs to pass (the ones with date patterns)
-        if isinstance(filtered_urls, (list, set)) and 0 < len(filtered_urls) < len(test_urls):
-            result.set_success(f"URL filtering works: {len(test_urls)} → {len(filtered_urls)}")
+        # Check results - expect the filtering function to match economic URLs
+        if isinstance(filtered_urls, (list, set)) and len(filtered_urls) == 2:
+            result.set_success(f"URL filtering works correctly: {len(test_urls)} → {len(filtered_urls)}")
             result.data['filtered_count'] = len(filtered_urls)
             result.data['original_count'] = len(test_urls)
+            
+            # Verify the correct URLs were kept
+            filtered_list = list(filtered_urls) if isinstance(filtered_urls, set) else filtered_urls
+            expected_urls = [
+                "https://dap-news.com/economic/2020/07/08/67095/",
+                "https://dap-news.com/economic/2021/01/10/789012/"
+            ]
+            
+            # Check if all expected URLs are in filtered results (regardless of order)
+            all_expected_found = all(url in filtered_list for url in expected_urls)
+            if all_expected_found:
+                result.data['correctly_filtered'] = True
+                logger.info("DAP News filter kept the correct URLs")
+            else:
+                result.set_partial_success("Filter kept some URLs but not the expected ones")
+                result.data['correctly_filtered'] = False
+                logger.warning(f"DAP News filter results don't match expected: {filtered_list}")
         else:
             if isinstance(filtered_urls, (list, set)) and len(filtered_urls) == 0:
                 result.set_failure(Exception("All URLs were filtered"), 
                                 "DapNews filter removed all URLs (too aggressive)")
-            elif isinstance(filtered_urls, (list, set)) and len(filtered_urls) >= len(test_urls):
-                result.set_failure(Exception("No URLs were filtered"), 
-                                "DapNews filter didn't remove any URLs")
+            elif isinstance(filtered_urls, (list, set)) and len(filtered_urls) > 2:
+                result.set_failure(Exception("Not enough URLs were filtered"), 
+                                f"DapNews filter kept {len(filtered_urls)} URLs (expected 2)")
+            elif isinstance(filtered_urls, (list, set)) and len(filtered_urls) < 2:
+                result.set_failure(Exception("Too many URLs were filtered"), 
+                                f"DapNews filter only kept {len(filtered_urls)} URLs (expected 2)")
             else:
                 result.set_failure(Exception(f"Invalid return: {filtered_urls}"), 
                                 f"DapNews filter returned unexpected result")
