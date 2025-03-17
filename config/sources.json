@@ -79,6 +79,11 @@
     "url": "https://www.rfa.org/khmer/environment/story_archive/",
     "language": "km"
   },
+  "rfanews_economic": {
+    "name": "RFA Economics",
+    "url": "https://www.rfa.org/khmer/business/story_archive/",
+    "language": "km"
+  },
   "rfanews_politic": {
     "name": "RFA Politics",
     "url": "https://www.rfa.org/khmer/politics/story_archive/",
@@ -91,7 +96,7 @@
   },
   "sabaynews_technology": {
     "name": "Sabay News Technology",
-    "url": "https://news.sabay.com.kh/ajax/topics/tech/",
+    "url": "https://news.sabay.com.kh/ajax/topics/technology",
     "language": "km"
   }
 }

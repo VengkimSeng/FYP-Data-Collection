@@ -18,7 +18,8 @@
   "economic": {
     "btv": ["btv_economic"],
     "dapnews": ["dapnews_economic"],
-    "postkhmer": ["postkhmer_economic"]
+    "postkhmer": ["postkhmer_economic"],
+    "rfanews": ["rfanews_economic"]
   },
   "environment": {
     "rfanews": ["rfanews_environment"]
