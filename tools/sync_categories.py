@@ -22,12 +22,15 @@ def setup_directory_structure():
         "src/crawlers/Urls_Crawler",
         "src/utils",
         "src/tests",
-        "output/articles"
+        "output/articles",
+        "output/urls",
+        "output/logs",
+        "output/test_reports"
     ]
     
     for dir_path in base_dirs:
         os.makedirs(dir_path, exist_ok=True)
-        logger.info(f"Created directory: {dir_path}")
+        logger.info(f"Ensured directory exists: {dir_path}")
 
 def create_empty_json_files(categories, base_path):
     """Create empty JSON files for each category."""
@@ -45,6 +48,14 @@ def main():
     test_urls_dir = "output/test_urls"
     test_results_dir = "output/test_results"
     
+    # First check if the output folder exists, create it if not
+    if not os.path.exists("output"):
+        logger.info("Output folder not found, creating it")
+        os.makedirs("output", exist_ok=True)
+    
+    # Ensure all required base directories exist
+    setup_directory_structure()
+    
     # Check if categories file exists
     if not os.path.exists(categories_file):
         logger.error(f"Categories file not found: {categories_file}")
@@ -55,16 +66,17 @@ def main():
         with open(categories_file, 'r', encoding='utf-8') as f:
             categories = json.load(f)
         
-        logger.info(f"Loaded {len(categories)} categories from {categories_file}")
+        category_names = list(categories.keys())
+        logger.info(f"Loaded {len(category_names)} categories from {categories_file}")
         
         # Create directories and empty JSON files
         for directory in [urls_dir, test_urls_dir, test_results_dir]:
             os.makedirs(directory, exist_ok=True)
             logger.info(f"Ensured directory exists: {directory}")
-            create_empty_json_files(categories, directory)
+            create_empty_json_files(category_names, directory)
         
         # Log the categories that will be processed
-        for category in categories:
+        for category in category_names:
             logger.info(f"Ready to process category: {category}")
         
         logger.info("Category sync completed successfully")
@@ -72,6 +84,7 @@ def main():
         
     except Exception as e:
         logger.error(f"Error syncing categories: {e}")
+        logger.error(f"Stack trace: {sys.exc_info()}")
         return False
 
 if __name__ == "__main__":

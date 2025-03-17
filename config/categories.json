@@ -1,34 +1,33 @@
 {
   "sport": {
-    "btv": "https://btv.com.kh/category/sport",
-    "dapnews": "https://dap-news.com/category/sport/",
-    "kohsantepheapdaily": "https://kohsantepheapdaily.com.kh/category/sport",
-    "sabaynews": "https://news.sabay.com.kh/topics/sport"
+    "btv": ["btv_sport"],
+    "dapnews": ["dapnews_sport"],
+    "kohsantepheapdaily": ["kohsantepheap_sport"],
+    "postkhmer": ["postkhmer_sport"],
+    "sabaynews": ["sabaynews_sport"]
   },
   "technology": {
-    "dapnews": "https://dap-news.com/category/technology/",
-    "kohsantepheapdaily": "https://kohsantepheapdaily.com.kh/category/technology",
-    "sabaynews": "https://news.sabay.com.kh/topics/technology"
+    "dapnews": ["dapnews_technology"],
+    "kohsantepheapdaily": ["kohsantepheap_technology"],
+    "sabaynews": ["sabaynews_technology"]
   },
   "health": {
-    "dapnews": "https://dap-news.com/category/health/",
-    "rfanews": "https://www.rfa.org/khmer/health/story_archive"
+    "kohsantepheapdaily": ["kohsantepheap_health"],
+    "rfanews": ["rfanews_health"]
   },
   "economic": {
-    "btv": "https://btv.com.kh/category/economic",
-    "dapnews": "https://dap-news.com/category/economic/",
-    "postkhmer": [
-      "https://www.postkhmer.com/business",
-      "https://www.postkhmer.com/financial"
-    ]
+    "btv": ["btv_economic"],
+    "dapnews": ["dapnews_economic"],
+    "postkhmer": ["postkhmer_economic"]
   },
   "environment": {
-    "rfanews": "https://www.rfa.org/khmer/environment/story_archive"
+    "rfanews": ["rfanews_environment"]
   },
   "politic": {
-    "dapnews": "https://dap-news.com/category/politic/",
-    "kohsantepheapdaily": "https://kohsantepheapdaily.com.kh/category/politic",
-    "postkhmer": "https://www.postkhmer.com/politics",
-    "rfanews": "https://www.rfa.org/khmer/politics/story_archive"
+    "btv": ["btv_politic"],
+    "dapnews": ["dapnews_politic"],
+    "kohsantepheapdaily": ["kohsantepheap_politic"],
+    "postkhmer": ["postkhmer_politic"],
+    "rfanews": ["rfanews_politic"]
   }
 }

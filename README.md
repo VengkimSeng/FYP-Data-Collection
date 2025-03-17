@@ -7,14 +7,18 @@ This system crawls Khmer language news articles from multiple websites, organize
 - [Overview](#overview)
 - [Directory Structure](#directory-structure)
 - [Installation](#installation)
-- [Quick Start Guide](#quick-start-guide)
-- [Detailed Usage](#detailed-usage)
-  - [Using the CLI](#using-the-cli)
+- [CLI Tool](#cli-tool)
+  - [Features](#features)
+  - [Basic Usage](#basic-usage)
+  - [Menu Options](#menu-options)
+  - [Configuration](#configuration)
+  - [Command-line Arguments](#command-line-arguments)
+- [Advanced Usage](#advanced-usage)
   - [URL Collection](#url-collection)
   - [Content Extraction](#content-extraction)
   - [Running Individual Crawlers](#running-individual-crawlers)
-- [Configuration](#configuration)
 - [Troubleshooting](#troubleshooting)
+- [Testing crawl_urls Function](#testing-crawl_urls-function)
 
 ## Overview
 
@@ -80,7 +84,17 @@ FYP-Data-Collection/
      - Download ChromeDriver from https://chromedriver.chromium.org/downloads
      - Add it to your PATH or update its path in `src/utils/chrome_setup.py`
 
-## Quick Start Guide
+## CLI Tool
+
+### Features
+
+- Collects article URLs from specified news websites
+- Extracts content from collected URLs
+- Organizes articles by category
+- Supports multiple concurrent workers for faster processing
+- Configurable via JSON files and command-line arguments
+
+### Basic Usage
 
 The easiest way to run the complete workflow is using the CLI:
 
@@ -98,9 +112,7 @@ python tools/cli.py all --output-dir output/articles/20230101   # Windows
 
 The system automatically detects your operating system and uses the appropriate Python command.
 
-## Detailed Usage
-
-### Using the CLI
+### Menu Options
 
 The CLI offers a convenient way to run the complete process or specific steps:
 
@@ -123,6 +135,29 @@ python3 tools/cli.py all      # macOS: Run complete workflow
 python tools/cli.py all       # Windows: Run complete workflow
 ```
 
+### Configuration
+
+All source URLs are stored in a single configuration file:
+
+```json
+// config/categories.json
+{
+  "sport": [
+    "https://btv.com.kh/category/sport",
+    "https://kohsantepheapdaily.com.kh/category/sport",
+    "..."
+  ],
+  "technology": [
+    "..."
+  ],
+  "..."
+}
+```
+
+Edit this file to add or remove news sources and categories.
+
+### Command-line Arguments
+
 Common options:
 
 - `--output-dir`: Set output directory for articles
@@ -130,6 +165,8 @@ Common options:
 - `--max-workers`: Maximum crawler workers (default: 3)
 - `--extract-workers`: Maximum extraction workers (default: 6)
 - `--reset-checkpoint`: Reset extraction checkpoint
+
+## Advanced Usage
 
 ### URL Collection
 
@@ -178,27 +215,6 @@ python src/crawlers/sabaynews_crawler.py --output output/urls/sabay --categories
 python src/crawlers/postkhmer_crawler.py
 ```
 
-## Configuration
-
-All source URLs are stored in a single configuration file:
-
-```json
-// config/categories.json
-{
-  "sport": [
-    "https://btv.com.kh/category/sport",
-    "https://kohsantepheapdaily.com.kh/category/sport",
-    "..."
-  ],
-  "technology": [
-    "..."
-  ],
-  "..."
-}
-```
-
-Edit this file to add or remove news sources and categories.
-
 ## Troubleshooting
 
 ### Common Issues
@@ -228,3 +244,13 @@ If issues persist, check the log files:
 - `output/logs/workflow.log`: General workflow logs
 - `output/logs/categories/`: Logs for each category
 - `output/logs/errors/`: Error logs for each category
+
+## Testing crawl_urls Function
+
+To test the `crawl_urls` function, you can run the following command:
+
+```bash
+python src/tests/crawler/main_test_crawler.py --test-crawl-urls
+```
+
+This will execute the `crawl_urls` function with a specific category and verify its execution.

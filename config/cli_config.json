@@ -1,0 +1,8 @@
+{
+    "urls_per_category": 2500,
+    "crawl_workers": 3,
+    "extract_workers": 6,
+    "output_dir": "output/articles",
+    "urls_dir": "output/urls",
+    "categories_file": "config/categories.json"
+}

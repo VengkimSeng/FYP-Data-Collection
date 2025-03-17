@@ -1,0 +1,97 @@
+{
+  "btv_sport": {
+    "name": "BTV Sport",
+    "url": "https://btv.com.kh/category/sport",
+    "language": "km"
+  },
+  "btv_politic": {
+    "name": "BTV Politics",
+    "url": "https://btv.com.kh/category/development",
+    "language": "km"
+  },
+  "btv_economic": {
+    "name": "BTV Economics",
+    "url": "http://btv.com.kh/category/economic",
+    "language": "km"
+  },
+  "dapnews_sport": {
+    "name": "DAP News Sport",
+    "url": "https://dap-news.com/category/sport/",
+    "language": "km"
+  },
+  "dapnews_technology": {
+    "name": "DAP News Technology",
+    "url": "https://dap-news.com/category/technology/",
+    "language": "km"
+  },
+  "dapnews_politic": {
+    "name": "DAP News Politics",
+    "url": "https://dap-news.com/category/politic/",
+    "language": "km"
+  },
+  "dapnews_economic": {
+    "name": "DAP News Economics",
+    "url": "https://dap-news.com/category/economic/",
+    "language": "km"
+  },
+  "kohsantepheap_sport": {
+    "name": "Kohsantepheap Sport",
+    "url": "https://kohsantepheapdaily.com.kh/category/sport/",
+    "language": "km"
+  },
+  "kohsantepheap_politic": {
+    "name": "Kohsantepheap Politics",
+    "url": "https://kohsantepheapdaily.com.kh/category/politic",
+    "language": "km"
+  },
+  "kohsantepheap_technology": {
+    "name": "Kohsantepheap Technology",
+    "url": "https://kohsantepheapdaily.com.kh/category/technology",
+    "language": "km"
+  },
+  "kohsantepheap_health": {
+    "name": "Kohsantepheap Health",
+    "url": "https://kohsantepheapdaily.com.kh/category/health",
+    "language": "km"
+  },
+  "postkhmer_economic": {
+    "name": "Post Khmer Economics",
+    "url": "https://www.postkhmer.com/business",
+    "language": "km"
+  },
+  "postkhmer_politic": {
+    "name": "Post Khmer Politics",
+    "url": "https://www.postkhmer.com/politics",
+    "language": "km"
+  },
+  "postkhmer_sport": {
+    "name": "Post Khmer Sport",
+    "url": "https://www.postkhmer.com/sport",
+    "language": "km"
+  },
+  "rfanews_health": {
+    "name": "RFA Health",
+    "url": "https://www.rfa.org/khmer/health/story_archive/",
+    "language": "km"
+  },
+  "rfanews_environment": {
+    "name": "RFA Environment",
+    "url": "https://www.rfa.org/khmer/environment/story_archive/",
+    "language": "km"
+  },
+  "rfanews_politic": {
+    "name": "RFA Politics",
+    "url": "https://www.rfa.org/khmer/politics/story_archive/",
+    "language": "km"
+  },
+  "sabaynews_sport": {
+    "name": "Sabay News Sport",
+    "url": "https://news.sabay.com.kh/ajax/topics/sport/",
+    "language": "km"
+  },
+  "sabaynews_technology": {
+    "name": "Sabay News Technology",
+    "url": "https://news.sabay.com.kh/ajax/topics/tech/",
+    "language": "km"
+  }
+}

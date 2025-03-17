@@ -1,202 +1,137 @@
 """
-Chrome WebDriver Setup Module
-
-This module provides functions to set up and configure Chrome WebDriver for web scraping
-across different operating systems and environments.
+Chrome and ChromeDriver setup utilities.
+This module handles the setup of the Chrome WebDriver in a cross-platform manner.
 """
 
 import os
-import random
+import sys
 import platform
 import logging
-import shutil
-from typing import Optional, List, Dict, Any
-
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import WebDriverException
 
-# Configure logger
 logger = logging.getLogger(__name__)
 
-def get_default_chromedriver_path() -> Optional[str]:
-    """
-    Determine the default ChromeDriver path based on the operating system.
-    
-    Returns:
-        Optional path to ChromeDriver executable
-    """
-    system = platform.system()
-    
-    # Try to find ChromeDriver in PATH
-    chromedriver_name = "chromedriver.exe" if system == "Windows" else "chromedriver"
-    path_chromedriver = shutil.which(chromedriver_name)
-    if path_chromedriver:
-        return path_chromedriver
-        
-    # System-specific default paths
-    if system == "Windows":
-        return "C:\\Program Files\\chromedriver-win64\\chromedriver.exe"
-    elif system == "Darwin":  # macOS
-        return "/opt/homebrew/bin/chromedriver"
-    elif system == "Linux":
-        return "/usr/bin/chromedriver"
-    
-    return None
+def detect_platform():
+    """Detect the current platform and return a standardized string."""
+    system = platform.system().lower()
+    if system == "darwin":
+        return "mac"
+    elif system == "linux":
+        return "linux"
+    else:
+        logger.warning(f"Unknown platform: {system}, defaulting to Linux")
+        return "linux"
 
-def get_random_user_agent() -> str:
-    """
-    Get a random user agent string to avoid detection.
+def get_chromedriver_path():
+    """Get the ChromeDriver path based on platform."""
+    platform_name = detect_platform()
     
-    Returns:
-        Random user agent string
-    """
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:89.0) Gecko/20100101 Firefox/89.0",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_5_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36",
-    ]
-    return random.choice(user_agents)
-
-def setup_chrome_options(
-    headless: bool = True,
-    disable_images: bool = True,
-    random_user_agent: bool = True,
-    additional_arguments: Optional[List[str]] = None,
-    additional_preferences: Optional[Dict[str, Any]] = None
-) -> Options:
-    """
-    Configure Chrome options for web scraping.
-    
-    Args:
-        headless: Run browser in headless mode
-        disable_images: Disable image loading for faster browsing
-        random_user_agent: Use a random user agent
-        additional_arguments: Additional Chrome arguments
-        additional_preferences: Additional Chrome preferences
+    if platform_name == "mac":
+        # On macOS, try multiple potential locations
+        potential_paths = [
+            "/usr/local/bin/chromedriver",
+            os.path.expanduser("~/chromedriver"),
+            os.path.expanduser("~/Downloads/chromedriver")
+        ]
         
-    Returns:
-        Configured Chrome options
-    """
+        # First check if ChromeDriver is in PATH
+        import shutil
+        chromedriver_in_path = shutil.which("chromedriver")
+        if chromedriver_in_path:
+            logger.info(f"Found ChromeDriver in PATH: {chromedriver_in_path}")
+            return chromedriver_in_path
+        
+        # Then check known locations
+        for path in potential_paths:
+            if os.path.isfile(path):
+                logger.info(f"Found ChromeDriver at: {path}")
+                return path
+                
+        # If not found, check for homebrew installation
+        brew_path = "/opt/homebrew/bin/chromedriver"
+        if os.path.isfile(brew_path):
+            logger.info(f"Found ChromeDriver at Homebrew location: {brew_path}")
+            return brew_path
+            
+        # Nothing found, return None and let ChromeDriver's automatic detection work
+        logger.warning("ChromeDriver not found in known locations, using auto-detection")
+        return None
+        
+    elif platform_name == "windows":
+        # On Windows, try standard installation paths
+        potential_paths = [
+            "C:\\Program Files\\chromedriver.exe",
+            "C:\\Program Files\\chromedriver-win64\\chromedriver.exe",
+            "C:\\chromedriver.exe",
+            os.path.join(os.environ.get("USERPROFILE", ""), "Downloads", "chromedriver.exe")
+        ]
+        
+        for path in potential_paths:
+            if os.path.isfile(path):
+                logger.info(f"Found ChromeDriver at: {path}")
+                return path
+                
+        logger.warning("ChromeDriver not found in known Windows locations, using auto-detection")
+        return None
+        
+    elif platform_name == "linux":
+        # On Linux, try standard paths
+        potential_paths = [
+            "/usr/local/bin/chromedriver",
+            "/usr/bin/chromedriver",
+            os.path.expanduser("~/chromedriver")
+        ]
+        
+        for path in potential_paths:
+            if os.path.isfile(path):
+                logger.info(f"Found ChromeDriver at: {path}")
+                return path
+                
+        logger.warning("ChromeDriver not found in known Linux locations, using auto-detection")
+        return None
+
+def setup_chrome_driver(**kwargs):
+    """Set up Chrome WebDriver with appropriate options and return it."""
     options = Options()
-    
-    # Basic arguments for web scraping
-    if headless:
-        options.add_argument("--headless")
-    
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    
-    # Add random user agent if requested
-    if random_user_agent:
-        options.add_argument(f"user-agent={get_random_user_agent()}")
-    
-    # Disable images if requested
-    if disable_images:
+    if kwargs.get("headless", True):
+        options.add_argument("--headless")  # Run in headless mode (no GUI)
+    if kwargs.get("disable_images", False):
         prefs = {"profile.managed_default_content_settings.images": 2}
         options.add_experimental_option("prefs", prefs)
+    if kwargs.get("random_user_agent", False):
+        options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3")
+    options.add_argument("--no-sandbox")  # Bypass OS security model, required on some systems
+    options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
+    options.add_argument("--disable-gpu")  # Applicable to windows os only
+    options.add_argument("--disable-extensions")  # Disable extensions for better stability
+    options.add_argument("--window-size=1920,1080")  # Set window size
+    options.add_argument("--disable-popup-blocking")  # Disable pop-up blocking
     
-    # Add any additional arguments
-    if additional_arguments:
-        for arg in additional_arguments:
-            options.add_argument(arg)
+    # Get ChromeDriver path
+    chromedriver_path = get_chromedriver_path()
     
-    # Add any additional preferences
-    if additional_preferences:
-        prefs = options.experimental_options.get("prefs", {})
-        prefs.update(additional_preferences)
-        options.add_experimental_option("prefs", prefs)
-    
-    return options
-
-def setup_chrome_driver(
-    chromedriver_path: Optional[str] = None,
-    options: Optional[Options] = None,
-    headless: bool = True,
-    disable_images: bool = True,
-    random_user_agent: bool = True,
-    use_webdriver_manager: bool = True
-) -> webdriver.Chrome:
-    """
-    Set up and configure Chrome WebDriver with optimized settings.
-    
-    Args:
-        chromedriver_path: Path to ChromeDriver executable
-        options: Preconfigured Chrome options (if None, will create default options)
-        headless: Run browser in headless mode (if creating new options)
-        disable_images: Disable image loading (if creating new options)
-        random_user_agent: Use random user agent (if creating new options)
-        use_webdriver_manager: Try using webdriver_manager as fallback if path not found
-        
-    Returns:
-        Configured Chrome WebDriver instance
-    """
-    # Use provided options or create new ones
-    chrome_options = options if options else setup_chrome_options(
-        headless=headless,
-        disable_images=disable_images,
-        random_user_agent=random_user_agent
-    )
-    
-    # Set macOS Chrome binary location if appropriate
-    if platform.system() == "Darwin":
-        if os.path.exists("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"):
-            chrome_options.binary_location = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-    
-    # Try different methods to initialize the driver
-    driver = None
-    errors = []
-    
-    # Method 1: Use the specified ChromeDriver path
-    if chromedriver_path and os.path.exists(chromedriver_path):
-        try:
-            logger.info(f"Trying ChromeDriver from specified path: {chromedriver_path}")
-            driver = webdriver.Chrome(service=Service(chromedriver_path), options=chrome_options)
-            return driver
-        except Exception as e:
-            errors.append(f"Failed with specified path: {str(e)}")
-    
-    # Method 2: Use default ChromeDriver path
-    if not chromedriver_path:
-        chromedriver_path = get_default_chromedriver_path()
-        if chromedriver_path and os.path.exists(chromedriver_path):
-            try:
-                logger.info(f"Trying ChromeDriver from default path: {chromedriver_path}")
-                driver = webdriver.Chrome(service=Service(chromedriver_path), options=chrome_options)
-                return driver
-            except Exception as e:
-                errors.append(f"Failed with default path: {str(e)}")
-    
-    # Method 3: Use webdriver_manager if enabled
-    if use_webdriver_manager:
-        try:
-            from webdriver_manager.chrome import ChromeDriverManager
-            try:
-                logger.info("Trying ChromeDriver with webdriver_manager")
-                driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-                return driver
-            except Exception as e:
-                errors.append(f"Failed with webdriver_manager: {str(e)}")
-        except ImportError:
-            errors.append("webdriver_manager not installed")
-    
-    # Method 4: Let Selenium find ChromeDriver in PATH
     try:
-        logger.info("Trying ChromeDriver from system PATH")
-        driver = webdriver.Chrome(options=chrome_options)
+        if chromedriver_path:
+            service = Service(executable_path=chromedriver_path)
+            driver = webdriver.Chrome(service=service, options=options)
+        else:
+            # Let Selenium try to automatically find ChromeDriver
+            driver = webdriver.Chrome(options=options)
+        
+        # Set page load timeout
+        driver.set_page_load_timeout(30)
+        logger.info("Chrome WebDriver set up successfully")
         return driver
     except Exception as e:
-        errors.append(f"Failed with system PATH: {str(e)}")
-    
-    # If all methods fail, raise exception with all errors
-    error_message = "Failed to initialize ChromeDriver. Errors:\n" + "\n".join(errors)
-    logger.error(error_message)
-    raise WebDriverException(error_message)
+        logger.error(f"Failed to set up Chrome WebDriver: {e}")
+        # More detailed diagnostic info
+        logger.error(f"Chrome options: {options.arguments}")
+        logger.error(f"ChromeDriver path: {chromedriver_path}")
+        logger.error(f"Platform: {platform.system()} {platform.release()}")
+        logger.error(f"Python version: {sys.version}")
+        raise
 
 if __name__ == "__main__":
     # Configure basic logging

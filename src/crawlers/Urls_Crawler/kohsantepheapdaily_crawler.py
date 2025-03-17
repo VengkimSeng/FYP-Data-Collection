@@ -1,23 +1,28 @@
 import warnings
 warnings.filterwarnings('ignore', message='.*urllib3 v2 only supports OpenSSL 1.1.1.*')
 
-from selenium import webdriver
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 import time
 import sys
 import os
+import argparse
+import re
+import traceback
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.utils.chrome_setup import setup_chrome_driver
-from src.crawlers.url_manager import URLManager
 from src.utils.log_utils import get_crawler_logger
+from src.utils.page_utils import scroll_page
+from src.utils.url_utils import extract_urls_with_pattern, filter_urls
+from src.crawlers.crawler_commons import generic_category_crawler
+from src.utils.incremental_saver import IncrementalURLSaver
+from src.utils.source_manager import get_source_urls, get_site_categories
+from src.utils.cmd_utils import parse_crawler_args, get_categories_from_args
 
 logger = get_crawler_logger('kohsantepheap')
 
-# Remove CATEGORIES dictionary since we'll use url_manager
-
-def setup_driver():
+def setup_selenium():
     """Initialize WebDriver with basic settings"""
     return setup_chrome_driver(
         headless=True,
@@ -25,51 +30,7 @@ def setup_driver():
         random_user_agent=True
     )
 
-def scroll_page(driver, max_attempts=5):
-    """
-    Scroll page until no new content is loaded.
-    
-    Args:
-        driver: WebDriver instance
-        max_attempts: Maximum attempts without new content before stopping.
-                     Use -1 for unlimited scrolling until no new content
-    """
-    last_height = 0
-    same_height_count = 0
-    total_scrolls = 0
-    
-    # Convert -1 to a large number for unlimited scrolling
-    effective_max = 10000 if max_attempts == -1 else max_attempts
-    
-    # Reduce wait time to avoid timeouts
-    scroll_wait = 1  # Reduced from 2 seconds to 1 second
-    
-    while (same_height_count < 3 and (max_attempts == -1 or total_scrolls < effective_max)):
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(scroll_wait)  # Reduced wait time
-        
-        new_height = driver.execute_script("return document.body.scrollHeight")
-        
-        if new_height == last_height:
-            same_height_count += 1
-            if same_height_count >= 3:  # Always stop after 3 consecutive no-changes
-                logger.info(f"No new content after {total_scrolls} scrolls")
-                break
-                
-            # Try scroll up/down to trigger lazy loading
-            logger.debug("Trying scroll up/down to trigger content load")
-            driver.execute_script(f"window.scrollTo(0, {new_height * 0.5});")
-            time.sleep(1)
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(1)
-        else:
-            same_height_count = 0
-            total_scrolls += 1
-            logger.debug(f"New content loaded at scroll {total_scrolls} (height: {new_height})")
-            
-        last_height = new_height
-
-def extract_urls(html, base_url):
+def extract_kohsantepheap_urls(html, base_url):
     """Extract article URLs from page"""
     urls = set()
     soup = BeautifulSoup(html, "html.parser")
@@ -82,108 +43,198 @@ def extract_urls(html, base_url):
             
     return urls
 
-def crawl_category(url: str, category: str, url_manager=None, max_scroll: int = -1) -> set:
+def scrape_page_content(driver, url, category, max_scroll=-1):
+    """
+    Scrape page content by scrolling and extracting URLs.
+    
+    Args:
+        driver: WebDriver instance
+        url: Page URL
+        category: Content category
+        max_scroll: Maximum scroll attempts (-1 for unlimited)
+        
+    Returns:
+        Set of collected URLs
+    """
+    all_urls = set()
+    scroll_count = 0
+    consecutive_no_new = 0
+    max_consecutive_no_new = 3
+    
+    # Output file path for saving URLs incrementally
+    output_file = os.path.join("output/urls", f"{category}.json")
+    
+    # Initial page load
+    html = driver.page_source
+    initial_urls = extract_kohsantepheap_urls(html, url)
+    all_urls.update(initial_urls)
+    logger.info(f"Initial page: Found {len(initial_urls)} URLs")
+    
+    # Save initial URLs
+    if initial_urls:
+        filtered_urls = filter_kohsantepheap_urls(initial_urls, category)
+        if filtered_urls:
+            from src.crawlers.master_crawler_controller import save_urls
+            save_urls(output_file, filtered_urls)
+            logger.info(f"Saved {len(filtered_urls)} URLs from initial page")
+    
+    # Scroll and collect more URLs
+    while (max_scroll == -1 or scroll_count < max_scroll) and consecutive_no_new < max_consecutive_no_new:
+        old_count = len(all_urls)
+        scroll_page(driver)
+        scroll_count += 1
+        
+        # Extract new URLs
+        html = driver.page_source
+        new_urls = extract_kohsantepheap_urls(html, url)
+        all_urls.update(new_urls)
+        
+        # Check if we found new URLs
+        new_count = len(all_urls) - old_count
+        if new_count > 0:
+            logger.info(f"Scroll {scroll_count}: Found {new_count} new URLs")
+            consecutive_no_new = 0
+            
+            # Save after each scroll that yields new URLs
+            filtered_urls = filter_kohsantepheap_urls(new_urls, category)
+            if filtered_urls:
+                from src.crawlers.master_crawler_controller import save_urls
+                save_urls(output_file, filtered_urls)
+                logger.info(f"Saved {len(filtered_urls)} URLs after scroll {scroll_count}")
+        else:
+            consecutive_no_new += 1
+            logger.info(f"Scroll {scroll_count}: No new URLs found (attempt {consecutive_no_new}/{max_consecutive_no_new})")
+            
+        # Short delay between scrolls
+        time.sleep(2)
+    
+    logger.info(f"Completed: {scroll_count} scrolls, found {len(all_urls)} total URLs")
+    # Final save
+    filtered_urls = filter_kohsantepheap_urls(all_urls, category)
+    if filtered_urls:
+        from src.crawlers.master_crawler_controller import save_urls
+        save_urls(output_file, filtered_urls)
+        logger.info(f"Final save: {len(filtered_urls)} total URLs")
+        
+    return all_urls
+
+def filter_kohsantepheap_urls(urls: set, category: str) -> list:
+    """
+    Filter Kohsantepheap URLs to ensure only valid article URLs are returned.
+    
+    Args:
+        urls: Set of URLs to filter
+        category: Category being crawled
+        
+    Returns:
+        Filtered list of URLs
+    """
+    if not urls:
+        return []
+    
+    # Extract domain from URLs (handles both .com and .com.kh)
+    domains = ['kohsantepheap.com.kh', 'kohsantepheapdaily.com.kh', 'kohsantepheapdaily.com']
+    
+    # Basic filtering
+    filtered = filter_urls(
+        list(urls),
+        domain=None,  # We'll check domains manually
+        excludes=['/tag/', '/category/', '/author/', '/page/'],
+        contains=None
+    )
+    
+    # Further filtering with custom rules
+    result = set()
+    for url in filtered:
+        parsed = urlparse(url)
+        
+        # Check domain
+        if not any(domain in parsed.netloc for domain in domains):
+            continue
+        
+        # Keep article URLs
+        if '/article/' in url or url.endswith('.html'):
+            result.add(url)
+            continue
+    
+    logger.info(f"Filtered {len(urls)} URLs down to {len(result)} valid articles")
+    return list(result)  # Convert set to list before returning
+
+def crawl_category(source_url: str, category: str, max_scroll: int = -1) -> list:
     """
     Crawl a single category page.
     
     Args:
-        url: URL to crawl
+        source_url: URL to crawl (the master controller will send this as source_url)
         category: Category name
-        url_manager: Optional URLManager instance for saving URLs
-        max_scroll: Maximum scroll attempts (-1 for unlimited scrolling)
+        max_scroll: Maximum number of scroll attempts (-1 for unlimited)
     
     Returns:
-        Set of collected URLs
+        List of collected and filtered URLs
     """
-    urls = set()
-    driver = setup_driver()
-    
+    driver = setup_selenium()
     try:
-        logger.info(f"Crawling {category}: {url}")
-        driver.get(url)
+        logger.info(f"Crawling {category}: {source_url}")
+        driver.get(source_url)
         time.sleep(5)  # Initial load
         
-        # Pass max_scroll parameter directly (already handles -1)
-        scroll_page(driver, max_attempts=max_scroll)
-        initial_page_urls = extract_urls(driver.page_source, url)
-        urls.update(initial_page_urls)
+        urls = scrape_page_content(driver, source_url, category, max_scroll=max_scroll)
+        # Apply filtering directly here
+        filtered_urls = filter_kohsantepheap_urls(urls, category)
+        logger.info(f"Total unique URLs after filtering: {len(filtered_urls)}")
         
-        # Save URLs if url_manager is provided
-        if url_manager and initial_page_urls:
-            added_count = url_manager.add_urls(category, initial_page_urls)
-            logger.info(f"Added {added_count} URLs using url_manager from initial page")
-            
-        # If pagination is available, follow it
-        page = 2
-        consecutive_no_new_urls = 0
-        max_consecutive_no_new = 2
+        # Final save
+        output_file = os.path.join("output/urls", f"{category}.json")
+        from src.crawlers.master_crawler_controller import save_urls
+        save_urls(output_file, filtered_urls)
+        logger.info(f"Final save: {len(filtered_urls)} URLs to {output_file}")
         
-        while consecutive_no_new_urls < max_consecutive_no_new:
-            try:
-                # Construct page URL - format depends on the site
-                # Try both formats common for pagination
-                page_url = f"{url}/page/{page}"
-                logger.info(f"Trying pagination: {page_url}")
-                
-                driver.get(page_url)
-                time.sleep(3)
-                
-                # Check if page loaded successfully
-                if "404" in driver.title or "not found" in driver.title.lower():
-                    logger.info(f"Pagination ended at page {page-1}")
-                    break
-                    
-                scroll_page(driver, max_attempts=max_scroll)
-                page_urls = extract_urls(driver.page_source, page_url)
-                
-                # Check for new unique URLs
-                old_count = len(urls)
-                urls.update(page_urls)
-                new_unique_count = len(urls) - old_count
-                
-                if new_unique_count > 0:
-                    consecutive_no_new_urls = 0
-                    logger.info(f"Found {new_unique_count} new unique URLs on page {page}")
-                    
-                    if url_manager:
-                        added_count = url_manager.add_urls(category, page_urls)
-                        logger.info(f"Added {added_count} URLs using url_manager from page {page}")
-                else:
-                    consecutive_no_new_urls += 1
-                    logger.info(f"No new unique URLs on page {page} (attempt {consecutive_no_new_urls}/{max_consecutive_no_new})")
-                    
-                page += 1
-                
-            except Exception as e:
-                logger.error(f"Error processing pagination: {e}")
-                break
-                
+        return filtered_urls
+        
     except Exception as e:
         logger.error(f"Error crawling {category}: {e}")
+        return []
     finally:
         driver.quit()
-        
-    logger.info(f"Completed crawling {category} with {len(urls)} total unique URLs")
-    return urls
 
 def main():
     """Main crawler entry point"""
-    url_manager = URLManager("output/urls", "kohsantepheap")
+    # Parse command line arguments using the utility
+    args = parse_crawler_args("kohsantepheapdaily")
+    
+    # All URLs collected (used only for standalone run)
+    all_urls = {}
     
     try:
-        # Use categories from url_manager
-        for category in url_manager.category_sources:
-            sources = url_manager.get_sources_for_category(category, "kohsantepheap")
+        # Get categories from source manager using the utility
+        args["site_name"] = "kohsantepheap"
+        categories = get_categories_from_args(args)
+        
+        for category in categories:
+            all_urls[category] = set()
+            # Get source URLs for this category
+            sources = get_source_urls(category, "kohsantepheap")
             if sources:
                 for url in sources:
-                    urls = crawl_category(url, category, url_manager=url_manager)
-                    added = url_manager.add_urls(category, urls)
-                    logger.info(f"Added {added} URLs for {category}")
+                    logger.info(f"Crawling category {category} from {url}")
+                    urls = crawl_category(
+                        url, 
+                        category, 
+                        max_scroll=args["max_scroll"]
+                    )
+                    all_urls[category].update(urls)
+                    logger.info(f"Total URLs for category {category}: {len(all_urls[category])}")
+            else:
+                logger.warning(f"No source URLs found for category: {category}")
+    
+        # Print final summary when running standalone
+        logger.info("Crawling complete. Summary:")
+        for cat, urls in all_urls.items():
+            logger.info(f"  {cat}: {len(urls)} URLs")
             
-    finally:
-        # Save results
-        results = url_manager.save_final_results()
-        logger.info(f"Total URLs saved: {sum(results.values())}")
+    except Exception as e:
+        logger.error(f"Error during crawling: {e}")
+        logger.error(traceback.format_exc())
 
 if __name__ == "__main__":
     main()
