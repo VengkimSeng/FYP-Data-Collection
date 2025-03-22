@@ -337,34 +337,28 @@ def crawl_urls(categories=None, resume=False):
         f"URL crawling for {', '.join(categories) if categories else 'all categories'}"
     )
 
-def extract_content(categories=None, resume=True):
+def extract_content(resume=True):
     """Run the content extraction process
     
-    Executes the content extractor to process collected URLs and extract article content.
+    Executes the article crawler to process collected URLs and extract article content.
+    Automatically processes all categories and stops when complete.
     
     Args:
-        categories: List of specific categories to extract, or None for all
         resume: Whether to resume from checkpoint (True) or restart (False)
         
     Returns:
         bool: True if extraction completed successfully, False otherwise
     """
     command = [
-        "python3", "src/extractors/main.py",
-        "--input-dir", CONFIG["urls_dir"],
-        "--output-dir", CONFIG["output_dir"],
-        "--max-workers", str(CONFIG["extract_workers"])
+        "bash", "scripts/run_article_crawler.sh"
     ]
     
     if not resume:
         command.append("--reset-checkpoint")
     
-    if categories and len(categories) == 1:
-        command.extend(["--category", categories[0]])
-    
     return run_command(
         command,
-        f"Content extraction for {', '.join(categories) if categories else 'all categories'}"
+        "Article extraction (all categories)"
     )
 
 def run_full_workflow(categories=None, resume=False):
@@ -558,7 +552,7 @@ def main_menu():
         print_header()
         print(f"{Fore.GREEN}Main Menu:{Style.RESET_ALL}")
         print("  1. Crawl URLs only")
-        print("  2. Extract content only")
+        print("  2. Extract articles from URLs")
         print("  3. Test crawlers")
         print("  4. Test extraction")
         print("  5. Sync categories and folders")
@@ -580,10 +574,11 @@ def main_menu():
                 categories = select_categories()
                 if categories is not None:
                     crawl_urls(categories, resume=False)
-            elif choice == 2:  # Extract content only
-                categories = select_categories()
-                if categories is not None:
-                    extract_content(categories, resume=True)
+            elif choice == 2:  # Extract articles from URLs
+                print(f"{Fore.CYAN}Starting article extraction for all categories.{Style.RESET_ALL}")
+                print(f"{Fore.CYAN}This will process all URL files and stop when complete.{Style.RESET_ALL}")
+                resume = input(f"{Fore.YELLOW}Resume from last checkpoint? (Y/n): {Style.RESET_ALL}").lower() != 'n'
+                extract_content(resume=resume)
             elif choice == 3:  # Test crawlers
                 run_tests()
             elif choice == 4:  # Test extraction
