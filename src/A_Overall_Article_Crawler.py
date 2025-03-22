@@ -202,8 +202,8 @@ def get_chrome_options():
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option("useAutomationExtension", False)
     options.add_argument("--disable-extensions")
-    # Add option to use selenium-manager to auto-download drivers if needed
-    options.add_experimental_option("use_selenium_manager", True)
+    # Remove the problematic option that's causing errors
+    # options.add_experimental_option("use_selenium_manager", True)
     return options
 
 # Define scraping functions for each base URL
@@ -226,10 +226,17 @@ def scrape_rfa(url, category):
             options = get_chrome_options()
             driver = webdriver.Chrome(service=service, options=options)
         except Exception as driver_init_error:
-            log_scrape_status(f"{Fore.YELLOW}[WARNING] Failed to initialize ChromeDriver with explicit path. Trying selenium-manager...{Style.RESET_ALL}")
-            # Fall back to letting selenium-manager handle it
-            options = get_chrome_options()
-            driver = webdriver.Chrome(options=options)
+            log_scrape_status(f"{Fore.YELLOW}[WARNING] Failed to initialize ChromeDriver with explicit path. Trying alternative approach...{Style.RESET_ALL}")
+            log_scrape_status(f"Error details: {str(driver_init_error)}")
+            
+            # Try alternative initialization without Service
+            try:
+                options = get_chrome_options()
+                driver = webdriver.Chrome(options=options)
+                log_scrape_status(f"{Fore.GREEN}[SUCCESS] ChromeDriver initialized using alternative method{Style.RESET_ALL}")
+            except Exception as alt_error:
+                log_scrape_status(f"{Fore.RED}[ERROR] Both initialization methods failed: {str(alt_error)}{Style.RESET_ALL}")
+                raise Exception(f"Failed to initialize ChromeDriver: {str(alt_error)}")
 
         try:
             log_scrape_status(f"Scraping RFA: {url}")
@@ -260,10 +267,13 @@ def scrape_rfa(url, category):
                 title = "Title Not Found"
             
             # Wait for content to load with heartbeat
+            content = "Content Not Found"
+            
+            # First attempt: Try the standard storytext div
             try:
                 start_time = time.time()
                 heartbeat_thread = threading.Thread(
-                    target=lambda: [print(f"Waiting for content... {int(time.time() - start_time)}s elapsed") or time.sleep(5) 
+                    target=lambda: [print(f"Waiting for content (method 1)... {int(time.time() - start_time)}s elapsed") or time.sleep(5) 
                                 for _ in range(int(MAX_WAIT_TIME/5))]
                 )
                 heartbeat_thread.daemon = True
@@ -272,11 +282,130 @@ def scrape_rfa(url, category):
                 content_div = WebDriverWait(driver, MAX_WAIT_TIME).until(
                     EC.presence_of_element_located((By.ID, "storytext"))
                 )
-                content = "\n".join([p.text.strip() for p in content_div.find_elements(By.TAG_NAME, "p")])
-                log_scrape_status(f"Content found: {len(content)} characters")
+                
+                paragraphs = []
+                # Try to get regular paragraphs first
+                p_elements = content_div.find_elements(By.TAG_NAME, "p")
+                if p_elements:
+                    paragraphs = [p.text.strip() for p in p_elements]
+                    
+                # If we didn't get any paragraphs, look for p.c-paragraph elements
+                if not paragraphs:
+                    log_scrape_status(f"{Fore.YELLOW}[WARNING] No standard paragraphs found, looking for p.c-paragraph elements...{Style.RESET_ALL}")
+                    p_elements = content_div.find_elements(By.CSS_SELECTOR, "p.c-paragraph")
+                    if p_elements:
+                        paragraphs = [p.text.strip() for p in p_elements]
+                
+                if paragraphs:
+                    content = "\n".join(paragraphs)
+                    log_scrape_status(f"Content found: {len(content)} characters")
+                else:
+                    log_scrape_status(f"{Fore.YELLOW}[WARNING] No paragraphs found in storytext div{Style.RESET_ALL}")
             except TimeoutException:
-                log_scrape_status(f"{Fore.RED}[ERROR] Content element timeout for {url}{Style.RESET_ALL}")
-                content = "Content Not Found"
+                log_scrape_status(f"{Fore.YELLOW}[WARNING] Storytext div not found, trying alternative method...{Style.RESET_ALL}")
+            except Exception as e:
+                log_scrape_status(f"{Fore.YELLOW}[WARNING] Error extracting content from storytext: {str(e)}{Style.RESET_ALL}")
+            
+            # Second attempt: Try looking for p.c-paragraph elements directly if content is still not found
+            if content == "Content Not Found":
+                try:
+                    log_scrape_status(f"{Fore.YELLOW}[INFO] Trying alternative content extraction method...{Style.RESET_ALL}")
+                    
+                    # Wait for any paragraph with c-paragraph class to appear
+                    start_time = time.time()
+                    heartbeat_thread = threading.Thread(
+                        target=lambda: [print(f"Waiting for content (method 2)... {int(time.time() - start_time)}s elapsed") or time.sleep(5) 
+                                    for _ in range(int(MAX_WAIT_TIME/5))]
+                    )
+                    heartbeat_thread.daemon = True
+                    heartbeat_thread.start()
+                    
+                    # Try to find the article content container using different possible selectors
+                    try:
+                        # First try: Look for a specific article container
+                        article_element = WebDriverWait(driver, 10).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, "div.articleContent, div.page-content, div.c-heroarea, div.o-body"))
+                        )
+                        log_scrape_status(f"{Fore.GREEN}[SUCCESS] Found article container element{Style.RESET_ALL}")
+                    except:
+                        # Second try: Just search the whole document
+                        log_scrape_status(f"{Fore.YELLOW}[WARNING] No article container found, searching whole document...{Style.RESET_ALL}")
+                        article_element = driver.find_element(By.TAG_NAME, "body")
+                    
+                    # Look for paragraphs with c-paragraph class
+                    c_paragraphs = article_element.find_elements(By.CSS_SELECTOR, "p.c-paragraph")
+                    if c_paragraphs:
+                        log_scrape_status(f"{Fore.GREEN}[SUCCESS] Found {len(c_paragraphs)} p.c-paragraph elements{Style.RESET_ALL}")
+                        paragraphs = [p.text.strip() for p in c_paragraphs]
+                        content = "\n".join(paragraphs)
+                        log_scrape_status(f"Content found: {len(content)} characters using alternative method")
+                    else:
+                        # Last resort: try to get any paragraph content
+                        log_scrape_status(f"{Fore.YELLOW}[WARNING] No c-paragraph elements found, trying any paragraphs...{Style.RESET_ALL}")
+                        all_paragraphs = article_element.find_elements(By.TAG_NAME, "p")
+                        if all_paragraphs:
+                            paragraphs = [p.text.strip() for p in all_paragraphs if p.text.strip()]
+                            if paragraphs:
+                                content = "\n".join(paragraphs)
+                                log_scrape_status(f"Content found: {len(content)} characters using any paragraph elements")
+                
+                except Exception as e:
+                    log_scrape_status(f"{Fore.RED}[ERROR] Alternative content extraction failed: {str(e)}{Style.RESET_ALL}")
+                    # Save page source for detailed debugging
+                    try:
+                        debug_file = f"debug_rfa_detailed_{int(time.time())}.html"
+                        with open(debug_file, "w", encoding="utf-8") as f:
+                            f.write(driver.page_source)
+                        log_scrape_status(f"{Fore.YELLOW}[INFO] Page source saved to {debug_file} for debugging{Style.RESET_ALL}")
+                    except:
+                        pass
+            
+            # Third attempt: If still no content, try a more generic approach
+            if content == "Content Not Found":
+                try:
+                    log_scrape_status(f"{Fore.YELLOW}[INFO] Trying last-resort content extraction method...{Style.RESET_ALL}")
+                    
+                    # Get text content from any visible paragraph in the main content area
+                    body = driver.find_element(By.TAG_NAME, "body")
+                    
+                    # Use JavaScript to get all visible text
+                    visible_text = driver.execute_script("""
+                        function getVisibleText(element) {
+                            let text = '';
+                            // Skip certain elements that typically don't contain main content
+                            if (element.tagName === 'SCRIPT' || element.tagName === 'STYLE' ||
+                                element.tagName === 'NOSCRIPT' || element.tagName === 'IFRAME' ||
+                                element.tagName === 'HEADER' || element.tagName === 'FOOTER' ||
+                                element.tagName === 'NAV') {
+                                return '';
+                            }
+                            
+                            // Get computed style to check visibility
+                            const style = window.getComputedStyle(element);
+                            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                                return '';
+                            }
+                            
+                            // Get text from this element
+                            if (element.tagName === 'P' && element.textContent.trim().length > 0) {
+                                text += element.textContent.trim() + '\\n';
+                            }
+                            
+                            // Recursively get text from child elements
+                            for (const child of element.children) {
+                                text += getVisibleText(child);
+                            }
+                            
+                            return text;
+                        }
+                        return getVisibleText(arguments[0]);
+                    """, body)
+                    
+                    if visible_text and len(visible_text) > 100:  # Ensure we have meaningful content
+                        content = visible_text
+                        log_scrape_status(f"{Fore.GREEN}[SUCCESS] Content extracted using JavaScript method: {len(content)} characters{Style.RESET_ALL}")
+                except Exception as e:
+                    log_scrape_status(f"{Fore.RED}[ERROR] JavaScript content extraction failed: {str(e)}{Style.RESET_ALL}")
 
             # Verify we have valid content
             if title != "Title Not Found" and content != "Content Not Found":
@@ -292,6 +421,20 @@ def scrape_rfa(url, category):
                 print(f"{Fore.GREEN}✓ Saved RFA article: {title[:50]}...{Style.RESET_ALL}")
                 return article_data
             else:
+                # Log detailed debugging information
+                log_scrape_status(f"{Fore.RED}[ERROR] Failed to extract complete article from {url}{Style.RESET_ALL}")
+                log_scrape_status(f"Title status: {'Found' if title != 'Title Not Found' else 'Not Found'}")
+                log_scrape_status(f"Content status: {'Found' if content != 'Content Not Found' else 'Not Found'}")
+                
+                # Save the page source for debugging
+                try:
+                    debug_file = f"debug_rfa_failed_{int(time.time())}.html"
+                    with open(debug_file, "w", encoding="utf-8") as f:
+                        f.write(driver.page_source)
+                    log_scrape_status(f"Page source saved to {debug_file} for debugging")
+                except Exception as save_err:
+                    log_scrape_status(f"Failed to save debug HTML: {str(save_err)}")
+                
                 raise Exception(f"Failed to extract complete article. Title found: {title != 'Title Not Found'}, Content found: {content != 'Content Not Found'}")
 
         except Exception as e:
@@ -330,10 +473,17 @@ def scrape_sabay(url, category):
             options = get_chrome_options()
             driver = webdriver.Chrome(service=service, options=options)
         except Exception as driver_init_error:
-            log_scrape_status(f"{Fore.YELLOW}[WARNING] Failed to initialize ChromeDriver with explicit path. Trying selenium-manager...{Style.RESET_ALL}")
-            # Fall back to letting selenium-manager handle it
-            options = get_chrome_options()
-            driver = webdriver.Chrome(options=options)
+            log_scrape_status(f"{Fore.YELLOW}[WARNING] Failed to initialize ChromeDriver with explicit path. Trying alternative approach...{Style.RESET_ALL}")
+            log_scrape_status(f"Error details: {str(driver_init_error)}")
+            
+            # Try alternative initialization without Service
+            try:
+                options = get_chrome_options()
+                driver = webdriver.Chrome(options=options)
+                log_scrape_status(f"{Fore.GREEN}[SUCCESS] ChromeDriver initialized using alternative method{Style.RESET_ALL}")
+            except Exception as alt_error:
+                log_scrape_status(f"{Fore.RED}[ERROR] Both initialization methods failed: {str(alt_error)}{Style.RESET_ALL}")
+                raise Exception(f"Failed to initialize ChromeDriver: {str(alt_error)}")
 
         try:
             log_scrape_status(f"Scraping Sabay: {url}")
@@ -595,11 +745,18 @@ def generic_scrape(url, category, title_selector, content_selector, is_id=False)
             log_debug(f"Creating Chrome driver for: {url}")
             driver = webdriver.Chrome(service=service, options=options)
         except Exception as driver_init_error:
-            log_scrape_status(f"{Fore.YELLOW}[WARNING] Failed to initialize ChromeDriver with explicit path. Trying selenium-manager...{Style.RESET_ALL}")
+            log_scrape_status(f"{Fore.YELLOW}[WARNING] Failed to initialize ChromeDriver with explicit path. Trying alternative approach...{Style.RESET_ALL}")
             log_category_progress(category, url, "Falling back to selenium-manager for ChromeDriver")
-            # Fall back to letting selenium-manager handle it
-            options = get_chrome_options()
-            driver = webdriver.Chrome(options=options)
+            log_scrape_status(f"Error details: {str(driver_init_error)}")
+            
+            # Try alternative initialization without Service
+            try:
+                options = get_chrome_options()
+                driver = webdriver.Chrome(options=options)
+                log_scrape_status(f"{Fore.GREEN}[SUCCESS] ChromeDriver initialized using alternative method{Style.RESET_ALL}")
+            except Exception as alt_error:
+                log_scrape_status(f"{Fore.RED}[ERROR] Both initialization methods failed: {str(alt_error)}{Style.RESET_ALL}")
+                raise Exception(f"Failed to initialize ChromeDriver: {str(alt_error)}")
 
         try:
             log_scrape_status(f"🔍 Navigating to: {url}")

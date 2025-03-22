@@ -350,7 +350,7 @@ def extract_content(resume=True):
         bool: True if extraction completed successfully, False otherwise
     """
     command = [
-        "bash", "scripts/run_article_crawler.sh"
+        "bash", "scripts/run_article_crawler.sh", "--background"
     ]
     
     if not resume:
